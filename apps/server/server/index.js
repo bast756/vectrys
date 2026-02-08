@@ -30,6 +30,15 @@ import quizUniversalRoutes from '../routes/quiz.universal.routes.js';
 import marketplaceRoutes from '../routes/marketplace.routes.js';
 import questRoutes from '../routes/quest.routes.js';
 import agentTerrainRoutes, { initializeSocketIO } from '../routes/agent-terrain.routes.js';
+import smsRoutes from '../routes/sms/smsRoutes.js';
+import smsRoutesV2 from '../routes/sms.routes.js';
+import cron from 'node-cron';
+import alertService from '../services/alert.service.js';
+
+// Data Engine v3.0 — Routes INTERNES UNIQUEMENT
+import dataEngineRoutes from '../src/modules/data-engine/data-engine.routes.js';
+import { internalOnly } from '../src/modules/data-engine/guards/internal-only.guard.js';
+import { ipWhitelist } from '../src/modules/data-engine/guards/ip-whitelist.guard.js';
 
 // Configuration
 dotenv.config();
@@ -110,6 +119,7 @@ app.get('/health', (req, res) => {
       marketplace: 'operational',
       hero_quest: 'operational',
       agent_terrain: 'operational',
+      sms_fate: 'operational',
       xp_system: 'operational',
       badge_system: 'operational',
     },
@@ -133,6 +143,8 @@ app.get('/', (req, res) => {
       marketplace: '/api/marketplace/*',
       hero_quest: '/api/quest/*',
       agent_terrain: '/api/agent-terrain/*',
+      sms_fate: '/api/v2/sms/*',
+      webhooks: '/api/webhooks/*',
     },
     total_routes: 75,
     features: [
@@ -164,6 +176,17 @@ app.use('/api/quiz/universal', quizUniversalRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/quest', questRoutes);
 app.use('/api/agent-terrain', agentTerrainRoutes);
+app.use('/api/sms', smsRoutes);
+app.use('/api/v2/sms', smsRoutesV2);       // 🆕 Routes SMS FATE v2
+app.use('/api/webhooks', smsRoutesV2);      // 🆕 Webhooks Twilio
+
+// Data Engine v3.0 — Routes INTERNES (RBAC protégé)
+app.use(
+  '/api/v1/internal/data-engine',
+  ipWhitelist,
+  internalOnly,
+  dataEngineRoutes
+);
 
 // ============================================================================
 // ERROR HANDLING
@@ -228,6 +251,15 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log(`❌ Manager disconnected: ${socket.id}`);
   });
+});
+
+// ============================================================================
+// CRON MONITORING SMS + FATE
+// ============================================================================
+
+// Vérification toutes les heures
+cron.schedule('0 * * * *', async () => {
+  await alertService.runAllChecks();
 });
 
 // ============================================================================

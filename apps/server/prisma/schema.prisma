@@ -1423,3 +1423,259 @@ model SecurityAlert {
   @@map("security_alerts")
 }
 
+
+// ============================================
+// 📊 SMS LOGS - Historique des envois
+// ============================================
+model SmsLog {
+  id                 String    @id @default(cuid())
+  messageSid         String?   @unique
+  destinataire       String
+  messageContenu     String    @db.Text
+  messageResume      String?
+  type               String
+  statut             String
+  raison             String?
+  codeErreur         Int?
+  dureeMs            Int?
+  idUtilisateur      String?
+  tentatives         Int       @default(1)
+  dateCreation       DateTime  @default(now())
+  dateEnvoi          DateTime?
+  dateLivraison      DateTime?
+  dateExpiration     DateTime?
+
+  // 🆕 Champs FATE
+  fateProfile        String?   // F, A, T, E, default ou null
+  templateName       String?   // Nom du template utilisé
+  fateConfidence     Float?    // Score de confiance 0.0-1.0
+
+  @@index([destinataire])
+  @@index([statut])
+  @@index([dateCreation])
+  @@index([type])
+  @@index([fateProfile])      // 🆕 Index pour analytics FATE
+}
+
+// ============================================
+// 🎭 FATE_PROFILE - Profils comportementaux détectés
+// ============================================
+model FATE_Profile {
+  id                 String    @id @default(uuid())
+  bookingId          String?   // Lien vers réservation
+  guestPhone         String    // Numéro voyageur
+  profile            String    // F, A, T, E, default
+  confidence         Float     // Score confiance 0.0-1.0
+  reasons            String[]  // Raisons de détection
+
+  // Données booking utilisées pour détection
+  nbGuests           Int?
+  duration           Int?      // Durée séjour en jours
+  propertyType       String?
+  hasChildren        Boolean   @default(false)
+
+  // Enrichissement par messages (Phase 2)
+  keywordsFound      String[]  // Mots-clés détectés dans messages
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([profile])
+  @@index([guestPhone])
+  @@index([bookingId])
+  @@map("fate_profiles")
+}
+
+// ============================================
+// 🚫 BLOCKLIST - Numéros opt-out
+// ============================================
+model BlocklistSms {
+  id                 String    @id @default(cuid())
+  numero             String    @unique
+  raison             String
+  dateAjout          DateTime  @default(now())
+  dateModification   DateTime  @updatedAt
+  motif              String?
+  
+  @@index([numero])
+}
+
+// ============================================
+// 📋 CONSENTEMENT SMS - RGPD
+// ============================================
+model ConsentementSms {
+  id                 String    @id @default(cuid())
+  idUtilisateur      String
+  numero             String
+  consentement       Boolean   @default(false)
+  typeConsent        String[]
+  dateConsent        DateTime?
+  dateRevocation     DateTime?
+  ipAdresse          String?
+  userAgent          String?
+  dateCreation       DateTime  @default(now())
+  dateModification   DateTime  @updatedAt
+  
+  @@unique([idUtilisateur, numero])
+  @@index([numero])
+  @@index([dateCreation])
+}
+
+// ============================================================================
+// DATA ENGINE v3.0 — Valorisation des données
+// ============================================================================
+
+// Habilitations internes Data Engine
+model InternalAccess {
+  id          String    @id @default(uuid())
+  user_id     String
+  granted_by  String
+  role        String    // ADMIN, INTERNAL_DATA, CTO, CEO
+  permissions String[]  @default([])
+  is_active   Boolean   @default(true)
+  granted_at  DateTime  @default(now())
+  revoked_at  DateTime?
+  reason      String?
+
+  @@unique([user_id])
+  @@index([user_id, is_active])
+  @@map("internal_access")
+}
+
+model DataAsset {
+  id                  String   @id @default(uuid())
+  name                String
+  slug                String   @unique
+  description         String?
+  category            String   // operational, behavioral, market, predictive, financial, geographic
+  subcategory         String?
+  sensitivity_level   Int      @default(1)
+  contains_pii        Boolean  @default(false)
+  pii_types           String[] @default([])
+  legal_basis         String   @default("legitimate_interest")
+  source_systems      String[] @default([])
+  volume_records      Int      @default(0)
+  freshness_hours     Float    @default(24)
+  quality_score       Int      @default(0)
+  uniqueness_score    Int      @default(0)
+  demand_score        Int      @default(0)
+  freshness_score     Int      @default(0)
+  monetization_score  Int      @default(0)
+  pipeline_stage      String   @default("raw")
+  anonymization_level String   @default("raw")
+  base_price_per_1000 Float    @default(0)
+  estimated_revenue_min Float  @default(0)
+  estimated_revenue_max Float  @default(0)
+  eligible_models     String[] @default([])
+  tags                String[] @default([])
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  classifications     ClassificationHistory[]
+  compliance_checks   ComplianceCheck[]
+  data_products       DataProduct[]
+
+  @@index([category])
+  @@index([pipeline_stage])
+  @@index([monetization_score])
+  @@map("data_assets")
+}
+
+model ClassificationHistory {
+  id         String   @id @default(uuid())
+  asset_id   String
+  source     String   @default("claude_api")
+  result     Json
+  confidence Float
+  created_at DateTime @default(now())
+
+  asset DataAsset @relation(fields: [asset_id], references: [id])
+
+  @@index([asset_id])
+  @@map("classification_history")
+}
+
+model ComplianceCheck {
+  id          String    @id @default(uuid())
+  asset_id    String
+  regulation  String
+  check_name  String
+  description String?
+  article     String?
+  status      String    @default("pending_review")
+  priority    String    @default("medium")
+  resolved_at DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  asset DataAsset @relation(fields: [asset_id], references: [id])
+
+  @@index([asset_id])
+  @@index([regulation])
+  @@map("compliance_checks")
+}
+
+model DataProduct {
+  id            String   @id @default(uuid())
+  asset_id      String
+  name          String
+  description   String?
+  status        String   @default("draft")
+  pricing_tiers Json?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  asset DataAsset @relation(fields: [asset_id], references: [id])
+
+  @@map("data_products")
+}
+
+model Partner {
+  id                 String   @id @default(uuid())
+  name               String
+  company            String?
+  email              String   @unique
+  type               String   @default("analytics")
+  tier               String   @default("free")
+  contract_status    String   @default("prospect")
+  stripe_customer_id String?
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  api_keys ApiKey[]
+
+  @@map("partners")
+}
+
+model ApiKey {
+  id                    String    @id @default(uuid())
+  partner_id            String
+  key_hash              String    @unique
+  prefix                String
+  tier                  String
+  rate_limit_per_minute Int       @default(10)
+  is_active             Boolean   @default(true)
+  expires_at            DateTime?
+  last_used_at          DateTime?
+  created_at            DateTime  @default(now())
+
+  partner Partner @relation(fields: [partner_id], references: [id])
+
+  @@index([prefix])
+  @@map("api_keys")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  entity_type String
+  entity_id   String
+  actor_id    String?
+  actor_type  String?
+  details     Json?
+  created_at  DateTime @default(now())
+
+  @@index([entity_type, entity_id])
+  @@index([created_at])
+  @@map("audit_logs")
+}
