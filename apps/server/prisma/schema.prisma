@@ -1,0 +1,1425 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ORGANIZATION & USERS
+// ============================================================================
+
+model Organization {
+  id                   String   @id @default(uuid())
+  name                 String
+  email                String   @unique
+  phone                String?
+  website              String?
+
+  // Subscription
+  subscription_tier    String   @default("free") // free, starter, pro, enterprise
+  subscription_status  String   @default("active") // active, trial, cancelled
+  trial_ends_at        DateTime?
+
+  // Relations
+  users                User[]
+  guests               Guest[]
+  bookings             Booking[]
+  conversations        Conversation[]
+
+  // Metadata
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@map("organizations")
+}
+
+model User {
+  id                   String   @id @default(uuid())
+  organization_id      String
+  organization         Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Identity
+  email                String   @unique
+  first_name           String
+  last_name            String
+  phone                String?
+
+  // Authentication
+  password_hash        String
+  role                 String   @default("staff") // admin, manager, staff
+
+  // Status
+  active               Boolean  @default(true)
+  last_login           DateTime?
+
+  // Relations
+  messages             Message[]
+
+  // Metadata
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ============================================================================
+// GUESTS & BOOKINGS
+// ============================================================================
+
+model Guest {
+  id                   String   @id @default(uuid())
+  organization_id      String
+  organization         Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Identity
+  email                String
+  first_name           String
+  last_name            String
+  phone                String?
+  language             String   @default("fr") // fr, en, es, it, de, etc.
+
+  // Preferences
+  preferences          Json?    // Dietary, accessibility, etc.
+
+  // Relations
+  bookings             Booking[]
+  conversations        Conversation[]
+
+  // Metadata
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@unique([organization_id, email])
+  @@map("guests")
+}
+
+model Booking {
+  id                   String   @id @default(uuid())
+  organization_id      String
+  organization         Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  guest_id             String
+  guest                Guest    @relation(fields: [guest_id], references: [id], onDelete: Cascade)
+
+  // Booking Details
+  confirmation_code    String   @unique
+  check_in             DateTime
+  check_out            DateTime
+  room_number          String?
+  room_type            String?
+
+  // Status
+  status               String   @default("confirmed") // confirmed, checked_in, checked_out, cancelled
+
+  // Pricing
+  total_amount         Float
+  currency             String   @default("EUR")
+
+  // Metadata
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@map("bookings")
+}
+
+// ============================================================================
+// CHAT & CONVERSATIONS
+// ============================================================================
+
+model Conversation {
+  id                   String   @id @default(uuid())
+  organization_id      String
+  organization         Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  guest_id             String?
+  guest                Guest?   @relation(fields: [guest_id], references: [id], onDelete: SetNull)
+
+  // Conversation Details
+  channel              String   @default("web") // web, whatsapp, messenger, instagram
+  language             String   @default("fr")
+
+  // Status
+  status               String   @default("active") // active, resolved, escalated
+  assigned_to          String?  // User ID if escalated
+
+  // AI Insights
+  soncas_profile       String?  // securite, orgueil, nouveaute, confort, argent, sympathie
+  emotional_state      String?  // positive, neutral, negative, frustrated
+  needs_intervention   Boolean  @default(false)
+  intervention_reason  String?
+
+  // Relations
+  messages             Message[]
+
+  // Metadata
+  started_at           DateTime @default(now())
+  ended_at             DateTime?
+  updated_at           DateTime @updatedAt
+
+  @@map("conversations")
+}
+
+model Message {
+  id                   String   @id @default(uuid())
+  conversation_id      String
+  conversation         Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  // Message Details
+  role                 String   // user, assistant, system
+  content              String   @db.Text
+
+  // AI Metadata
+  llm_model            String?  // gpt-4, claude-3, etc.
+  tokens_used          Int?
+  processing_time_ms   Int?
+
+  // FATE Detection
+  objection_detected   Boolean  @default(false)
+  objection_type       String?  // too_expensive, complex_integration, etc.
+  objection_confidence Float?
+
+  // Emotional Analysis
+  sentiment            String?  // positive, neutral, negative
+  sentiment_score      Float?   // -1.0 to 1.0
+  emotions_detected    Json?    // Array of emotions
+
+  // SONCAS Profile
+  soncas_indicators    Json?    // Detected SONCAS indicators
+
+  // User Attribution
+  user_id              String?
+  user                 User?    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  // Metadata
+  created_at           DateTime @default(now())
+
+  @@map("messages")
+}
+
+// ============================================================================
+// HOUSEKEEPING
+// ============================================================================
+
+model HousekeepingCompany {
+  id                   String   @id @default(uuid())
+  name                 String
+  contact_email        String
+  contact_phone        String
+  active               Boolean  @default(true)
+
+  // Progression société
+  progression          HousekeepingCompanyProgression?
+  housekeepers         Housekeeper[]
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@map("housekeeping_companies")
+}
+
+model HousekeepingCompanyProgression {
+  id                          String   @id @default(uuid())
+  company_id                  String   @unique
+  company                     HousekeepingCompany @relation(fields: [company_id], references: [id], onDelete: Cascade)
+
+  // Progression globale
+  overall_percentage          Float    @default(0)   // 0-100%
+  current_level               Int      @default(1)   // 1-5
+
+  // Sources de points
+  quality_standards_points    Int      @default(0)   // 40%
+  validated_photos_points     Int      @default(0)   // 30%
+  satisfaction_points         Int      @default(0)   // 20%
+  training_points             Int      @default(0)   // 10%
+
+  // Métriques
+  total_quality_checks        Int      @default(0)
+  passed_quality_checks       Int      @default(0)
+  photos_submitted            Int      @default(0)
+  photos_validated            Int      @default(0)
+  avg_satisfaction_score      Float    @default(0)
+
+  // Gating LLM
+  autonomous_deployment       Boolean  @default(false)  // >= 70%
+  priority_access             Boolean  @default(false)  // >= 80%
+
+  updated_at                  DateTime @updatedAt
+
+  @@map("housekeeping_company_progressions")
+}
+
+model Housekeeper {
+  id                   String   @id @default(uuid())
+  company_id           String
+  company              HousekeepingCompany @relation(fields: [company_id], references: [id], onDelete: Cascade)
+
+  // Identité
+  first_name           String
+  last_name            String
+  email                String
+  phone                String
+  registered_phone_id  String?  // Unique device ID for security validation
+
+  // Langues
+  native_language      String   // 'ar', 'es', 'pt', 'pl', etc.
+  target_language      String   @default("fr")
+  current_level        String   @default("A1.1") // A1.1 → C2
+
+  // Avatar & Gamification
+  avatar_id            String?
+  avatar_customization Json?
+  total_xp             Int      @default(0)
+  level                Int      @default(1)
+  badges               Json?    // Array of badge IDs
+
+  // Language Progress
+  language_progress         LanguageProgress?
+  universal_quiz_responses  UniversalQuizResponse[]
+
+  // Field Work (Agent de Terrain)
+  missions                  Mission[]
+  security_alerts           SecurityAlert[]
+
+  // Status
+  active               Boolean  @default(true)
+
+  // Metadata
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@unique([company_id, email])
+  @@map("housekeepers")
+}
+
+model LanguageProgress {
+  id                   String   @id @default(uuid())
+  housekeeper_id       String   @unique
+  housekeeper          Housekeeper @relation(fields: [housekeeper_id], references: [id], onDelete: Cascade)
+
+  // Progression
+  current_level        String   @default("A1.1")
+  total_lessons        Int      @default(0)
+  completed_lessons    Int      @default(0)
+  total_quizzes        Int      @default(0)
+  passed_quizzes       Int      @default(0)
+
+  // Scores
+  listening_score      Int      @default(0)
+  speaking_score       Int      @default(0)
+  reading_score        Int      @default(0)
+  writing_score        Int      @default(0)
+
+  // Streak
+  current_streak       Int      @default(0)
+  longest_streak       Int      @default(0)
+  last_activity        DateTime?
+
+  // Certification
+  certified_level      String?
+  certification_date   DateTime?
+
+  // Relations
+  quiz_responses       LanguageQuizResponse[]
+  cleaning_responses   CleaningQuizResponse[]
+
+  updated_at           DateTime @updatedAt
+
+  @@map("language_progress")
+}
+
+// ============================================================================
+// QUIZ SYSTEM - Language Learning
+// ============================================================================
+
+model LanguageQuizQuestion {
+  id                   String   @id @default(uuid())
+
+  // Question Details
+  level                String   // A1.1, A1.2, A2.1, A2.2, B1.1, B1.2, B2.1, B2.2, C1, C2
+  category             String   // grammar, vocabulary, listening, speaking, reading
+  subcategory          String?  // present_tense, pronouns, hotel_vocabulary, etc.
+
+  // Content
+  question_text        String   @db.Text
+  question_audio_url   String?  // ElevenLabs audio URL
+
+  // Options (Multiple Choice)
+  option_a             String
+  option_b             String
+  option_c             String
+  option_d             String
+  correct_option       String   // 'a', 'b', 'c', 'd'
+
+  // Explanation
+  explanation_text     String   @db.Text
+  explanation_audio    String?  // ElevenLabs audio for explanation
+
+  // Metadata
+  difficulty           Int      @default(1) // 1-5
+  xp_reward            Int      @default(10)
+  tags                 String[] // Array of tags
+
+  // Stats
+  times_shown          Int      @default(0)
+  times_correct        Int      @default(0)
+  success_rate         Float?   // Calculated: times_correct / times_shown
+
+  // Status
+  active               Boolean  @default(true)
+  validated_by         String?  // Admin who validated
+
+  // Relations
+  responses            LanguageQuizResponse[]
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([level])
+  @@index([category])
+  @@index([difficulty])
+  @@map("language_quiz_questions")
+}
+
+model LanguageQuizResponse {
+  id                   String   @id @default(uuid())
+
+  // Relations
+  housekeeper_id       String
+  housekeeper          LanguageProgress @relation(fields: [housekeeper_id], references: [id], onDelete: Cascade)
+
+  question_id          String
+  question             LanguageQuizQuestion @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  // Response Details
+  selected_option      String   // 'a', 'b', 'c', 'd'
+  is_correct           Boolean
+  time_taken_seconds   Int?     // Time to answer
+
+  // Context
+  session_id           String?  // Quiz session identifier
+  attempt_number       Int      @default(1) // 1st, 2nd, 3rd attempt at this question
+
+  // Rewards
+  xp_earned            Int      @default(0)
+  badge_unlocked       String?  // Badge ID if unlocked with this answer
+
+  created_at           DateTime @default(now())
+
+  @@index([housekeeper_id])
+  @@index([question_id])
+  @@index([session_id])
+  @@map("language_quiz_responses")
+}
+
+// ============================================================================
+// QUIZ SYSTEM - Housekeeping/Cleaning Knowledge
+// ============================================================================
+
+model CleaningQuizQuestion {
+  id                   String   @id @default(uuid())
+
+  // Question Details
+  category             String   // products, techniques, safety, standards, time_management
+  subcategory          String?  // bathroom_cleaning, bed_making, floor_care, etc.
+
+  // Content
+  question_text        String   @db.Text
+  question_image_url   String?  // Photo reference (before/after, product labels, etc.)
+
+  // Options (Multiple Choice)
+  option_a             String
+  option_b             String
+  option_c             String
+  option_d             String
+  correct_option       String   // 'a', 'b', 'c', 'd'
+
+  // Explanation
+  explanation_text     String   @db.Text
+  explanation_video    String?  // Tutorial video URL
+
+  // Metadata
+  difficulty           Int      @default(1) // 1-5
+  xp_reward            Int      @default(15)
+  tags                 String[] // Array of tags
+
+  // Professional Context
+  required_for_cert    Boolean  @default(false) // Required for certification
+  hotel_standard       String?  // 3-star, 4-star, 5-star, luxury
+
+  // Stats
+  times_shown          Int      @default(0)
+  times_correct        Int      @default(0)
+  success_rate         Float?
+
+  // Status
+  active               Boolean  @default(true)
+  validated_by         String?
+
+  // Relations
+  responses            CleaningQuizResponse[]
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([category])
+  @@index([difficulty])
+  @@index([required_for_cert])
+  @@map("cleaning_quiz_questions")
+}
+
+model CleaningQuizResponse {
+  id                   String   @id @default(uuid())
+
+  // Relations
+  housekeeper_id       String
+  housekeeper          LanguageProgress @relation(fields: [housekeeper_id], references: [id], onDelete: Cascade)
+
+  question_id          String
+  question             CleaningQuizQuestion @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  // Response Details
+  selected_option      String   // 'a', 'b', 'c', 'd'
+  is_correct           Boolean
+  time_taken_seconds   Int?
+
+  // Context
+  session_id           String?
+  attempt_number       Int      @default(1)
+
+  // Rewards
+  xp_earned            Int      @default(0)
+  badge_unlocked       String?
+
+  created_at           DateTime @default(now())
+
+  @@index([housekeeper_id])
+  @@index([question_id])
+  @@index([session_id])
+  @@map("cleaning_quiz_responses")
+}
+
+// ============================================================================
+// GAMIFICATION - Marketplace & Trading
+// ============================================================================
+
+model Item {
+  id                   String   @id @default(uuid())
+
+  // Item Details
+  type                 String   // avatar, accessory, badge, background, emote
+  name                 String
+  description          String   @db.Text
+
+  // Visual
+  image_url            String   // Asset URL
+  thumbnail_url        String?
+  model_3d_url         String?  // For 3D avatars/accessories (Three.js)
+
+  // Rarity & Value
+  rarity               String   // common, rare, epic, legendary, mythic
+  base_price           Int      // XP cost
+  current_market_value Int?     // Average trading price
+
+  // Availability
+  available_for_purchase Boolean @default(true)
+  required_level       Int      @default(1)
+  required_badge       String?  // Unlock condition
+  limited_edition      Boolean  @default(false)
+  max_supply           Int?     // For limited items
+  current_supply       Int?
+
+  // Stats & Metadata
+  times_purchased      Int      @default(0)
+  times_traded         Int      @default(0)
+  popularity_score     Float    @default(0)
+
+  // Animation/Special Effects
+  animation_data       Json?    // Three.js animation parameters
+  special_effects      String[] // Array of effect IDs
+
+  // Status
+  active               Boolean  @default(true)
+
+  // Relations
+  trades_as_item1      Trade[]  @relation("Item1Trades")
+  trades_as_item2      Trade[]  @relation("Item2Trades")
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([type])
+  @@index([rarity])
+  @@index([available_for_purchase])
+  @@map("items")
+}
+
+model Trade {
+  id                   String   @id @default(uuid())
+
+  // Trading Parties
+  seller_id            String   // Housekeeper ID
+  buyer_id             String   // Housekeeper ID
+
+  // Items Traded
+  item1_id             String?  // Item offered by seller
+  item1                Item?    @relation("Item1Trades", fields: [item1_id], references: [id])
+  item1_quantity       Int      @default(1)
+
+  item2_id             String?  // Item offered by buyer
+  item2                Item?    @relation("Item2Trades", fields: [item2_id], references: [id])
+  item2_quantity       Int      @default(1)
+
+  // XP Exchange
+  xp_from_seller       Int      @default(0) // XP offered by seller
+  xp_from_buyer        Int      @default(0) // XP offered by buyer
+
+  // Trade Status
+  status               String   @default("pending") // pending, accepted, rejected, completed, cancelled
+
+  // Negotiation
+  offer_message        String?  @db.Text
+  counter_offer        String?  @db.Text
+
+  // Completion
+  completed_at         DateTime?
+  cancelled_reason     String?
+
+  // Fraud Prevention
+  flagged              Boolean  @default(false)
+  flagged_reason       String?
+  admin_reviewed       Boolean  @default(false)
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([seller_id])
+  @@index([buyer_id])
+  @@index([status])
+  @@map("trades")
+}
+
+// ============================================================================
+// KNOWLEDGE BASE (Dual System)
+// ============================================================================
+
+model KnowledgeBaseEntry {
+  id                   String   @id @default(uuid())
+  organization_id      String?
+
+  // Content
+  type                 String   // global, property_specific
+  category             String   // faq, policy, amenity, local_info
+  question             String   @db.Text
+  answer               String   @db.Text
+
+  // Multilingual
+  language             String   @default("fr")
+  translations         Json?    // Map of lang -> {question, answer}
+
+  // Metadata
+  tags                 String[] // Array of tags
+  priority             Int      @default(0)
+  active               Boolean  @default(true)
+
+  // Usage Stats
+  usage_count          Int      @default(0)
+  last_used            DateTime?
+
+  // Timestamps
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([organization_id])
+  @@index([category])
+  @@index([language])
+  @@map("knowledge_base_entries")
+}
+
+// ============================================================================
+// ANALYTICS & METRICS
+// ============================================================================
+
+model ConversationMetrics {
+  id                   String   @id @default(uuid())
+  conversation_id      String   @unique
+  organization_id      String
+
+  // Performance
+  total_messages       Int      @default(0)
+  avg_response_time_ms Int      @default(0)
+  resolution_time_ms   Int?
+
+  // AI Metrics
+  objections_detected  Int      @default(0)
+  objections_resolved  Int      @default(0)
+  sentiment_changes    Int      @default(0)
+
+  // Outcome
+  resolved_by_ai       Boolean  @default(false)
+  escalated_to_human   Boolean  @default(false)
+  guest_satisfaction   Float?   // 1-5 stars
+
+  // Timestamps
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([organization_id])
+  @@map("conversation_metrics")
+}
+
+// ============================================================================
+// HERO QUEST JOURNEY SYSTEM
+// ============================================================================
+
+model QuestWorld {
+  id                   String   @id @default(uuid())
+
+  // World Details
+  world_number         Int      @unique // 1-5
+  name                 String   // "L'Arrivée dans les Ténèbres"
+  name_short           String   // "Les Ténèbres"
+  description          String   @db.Text
+  narrative_intro      String   @db.Text // Story introduction
+  narrative_outro      String   @db.Text // Story completion
+
+  // Visual & Audio
+  theme_color          String   // Hex color for UI theming
+  background_image     String?  // World map background
+  ambient_music_url    String?  // Howler.js background music
+  icon_emoji           String   @default("🌍")
+
+  // Level Requirements
+  min_level            String   // "A1.1", "A2.1", etc.
+  max_level            String   // "A2.2", "B1.1", etc.
+  required_world       Int?     // Previous world that must be completed (null for world 1)
+  required_quests      Int      @default(0) // Number of quests from previous world needed
+
+  // Progression
+  total_quests         Int      @default(0) // Calculated: main + side quests
+  has_boss             Boolean  @default(true)
+
+  // Metadata
+  active               Boolean  @default(true)
+  display_order        Int      @unique
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  // Relations
+  quests               Quest[]
+  boss_battle          BossBattle?
+  world_progress       WorldProgress[]
+
+  @@index([world_number])
+  @@index([display_order])
+  @@map("quest_worlds")
+}
+
+model Quest {
+  id                   String   @id @default(uuid())
+  world_id             String
+  world                QuestWorld @relation(fields: [world_id], references: [id], onDelete: Cascade)
+
+  // Quest Details
+  quest_number         Int      // Order within world
+  type                 String   // "main", "side", "boss", "heritage"
+  title                String
+  description          String   @db.Text
+  narrative_text       String   @db.Text // Story context
+
+  // Objectives
+  objectives           Json     // Array: [{ id, text, type, target, completed }]
+  // Example: [
+  //   { id: "obj1", text: "Complete 3 vocabulary exercises", type: "quiz", target: 3, quiz_category: "vocabulary" },
+  //   { id: "obj2", text: "Practice airport dialogue", type: "dialogue", target: 1, dialogue_id: "airport_arrival" }
+  // ]
+
+  // Requirements
+  min_level_cecrl      String   // "A1.1"
+  required_quests      String[] // Array of quest IDs that must be completed first
+
+  // Rewards
+  xp_base              Int      @default(100)
+  xp_bonus             Int      @default(0) // Bonus for 100% completion
+  badge_reward         String?  // Badge ID to unlock
+  item_rewards         String[] // Item IDs unlocked
+
+  // Visual & Interactive
+  quest_icon           String   @default("📜")
+  cover_image          String?
+  intro_cutscene       Json?    // Framer Motion animation data
+  outro_cutscene       Json?
+
+  // NPCs and Dialogue
+  npcs                 Json?    // [{ id, name, avatar, role }]
+  dialogue_tree        Json?    // Dialogue system data structure
+
+  // Gameplay Settings
+  allow_replay         Boolean  @default(true)
+  time_limit_minutes   Int?     // Optional time challenge
+  difficulty_modifier  Float    @default(1.0) // XP multiplier
+
+  // Stats
+  times_started        Int      @default(0)
+  times_completed      Int      @default(0)
+  avg_completion_time  Int?     // In minutes
+  completion_rate      Float?   // Percentage
+
+  // Status
+  active               Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  // Relations
+  quest_progress       QuestProgress[]
+
+  @@unique([world_id, quest_number])
+  @@index([world_id])
+  @@index([type])
+  @@map("quests")
+}
+
+model QuestProgress {
+  id                   String   @id @default(uuid())
+
+  // Relations
+  housekeeper_id       String
+  quest_id             String
+  quest                Quest    @relation(fields: [quest_id], references: [id], onDelete: Cascade)
+
+  // Progress
+  status               String   @default("locked") // locked, available, in_progress, completed, failed
+  objectives_state     Json     // Current state of objectives (same structure as Quest.objectives with progress)
+  completion_percent   Int      @default(0) // 0-100
+
+  // Session Tracking
+  started_at           DateTime?
+  completed_at         DateTime?
+  total_time_minutes   Int      @default(0)
+  attempts             Int      @default(0)
+
+  // Rewards Claimed
+  xp_earned            Int      @default(0)
+  badges_unlocked      String[] // Badge IDs unlocked from this quest
+  items_unlocked       String[] // Item IDs unlocked
+
+  // Performance
+  perfect_completion   Boolean  @default(false) // All objectives 100%
+  speed_bonus_claimed  Boolean  @default(false)
+
+  // Metadata
+  last_played          DateTime?
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@unique([housekeeper_id, quest_id])
+  @@index([housekeeper_id])
+  @@index([quest_id])
+  @@index([status])
+  @@map("quest_progress")
+}
+
+model WorldProgress {
+  id                   String   @id @default(uuid())
+
+  // Relations
+  housekeeper_id       String
+  world_id             String
+  world                QuestWorld @relation(fields: [world_id], references: [id], onDelete: Cascade)
+
+  // Progress
+  status               String   @default("locked") // locked, unlocked, in_progress, completed
+  quests_completed     Int      @default(0)
+  quests_total         Int      @default(0)
+  completion_percent   Int      @default(0)
+
+  // Boss Battle
+  boss_unlocked        Boolean  @default(false)
+  boss_defeated        Boolean  @default(false)
+  boss_attempts        Int      @default(0)
+
+  // Timestamps
+  unlocked_at          DateTime?
+  started_at           DateTime?
+  completed_at         DateTime?
+
+  // Stats
+  total_xp_earned      Int      @default(0)
+  total_time_minutes   Int      @default(0)
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@unique([housekeeper_id, world_id])
+  @@index([housekeeper_id])
+  @@index([world_id])
+  @@index([status])
+  @@map("world_progress")
+}
+
+model BossBattle {
+  id                   String   @id @default(uuid())
+  world_id             String   @unique
+  world                QuestWorld @relation(fields: [world_id], references: [id], onDelete: Cascade)
+
+  // Boss Details
+  boss_name            String   // "Le Bureaucrate"
+  boss_title           String   // "Gardien des Ténèbres"
+  description          String   @db.Text
+  narrative_intro      String   @db.Text
+  narrative_victory    String   @db.Text
+  narrative_defeat     String   @db.Text
+
+  // Visual
+  boss_avatar          String   // Image URL or emoji
+  boss_model_3d        String?  // Three.js model (optional)
+  arena_background     String?  // Battle background image
+  battle_music_url     String?  // Howler.js battle theme
+
+  // Challenge Structure
+  challenge_type       String   @default("quiz_gauntlet") // quiz_gauntlet, dialogue_challenge, timed_trial, mixed
+  challenge_data       Json     // Specific challenge configuration
+  // Example for quiz_gauntlet: { rounds: 3, questions_per_round: 5, passing_score: 80, lives: 3 }
+
+  // Difficulty
+  difficulty_level     Int      @default(5) // 1-10 scale
+  min_cecrl_level      String   // "A2.2"
+  time_limit_minutes   Int?     // Optional time pressure
+
+  // Rewards
+  xp_reward            Int      @default(2500)
+  badge_reward         String   // Badge unlocked on victory
+  item_rewards         String[] // Special items
+  unlock_next_world    Boolean  @default(true)
+
+  // Mechanics
+  has_phases           Boolean  @default(false)
+  phases_data          Json?    // Multi-phase boss battle
+  special_mechanics    Json?    // Unique battle mechanics
+
+  // Stats
+  times_attempted      Int      @default(0)
+  times_defeated       Int      @default(0)
+  avg_attempts         Float?   // Average attempts before victory
+  defeat_rate          Float?   // Percentage
+
+  // Status
+  active               Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  // Relations
+  battle_attempts      BossBattleAttempt[]
+
+  @@index([world_id])
+  @@map("boss_battles")
+}
+
+model BossBattleAttempt {
+  id                   String   @id @default(uuid())
+
+  // Relations
+  housekeeper_id       String
+  boss_battle_id       String
+  boss_battle          BossBattle @relation(fields: [boss_battle_id], references: [id], onDelete: Cascade)
+
+  // Attempt Details
+  attempt_number       Int      @default(1)
+  status               String   @default("in_progress") // in_progress, victory, defeat, abandoned
+
+  // Performance
+  score                Int      @default(0)
+  accuracy_percent     Float?
+  time_taken_minutes   Int?
+  lives_remaining      Int?
+
+  // Challenge Tracking
+  rounds_completed     Int      @default(0)
+  current_round_data   Json?    // Current state of the battle
+  answers_log          Json?    // Log of all answers/actions
+
+  // Result
+  victory              Boolean  @default(false)
+  xp_earned            Int      @default(0)
+  badges_unlocked      String[]
+
+  // Timestamps
+  started_at           DateTime @default(now())
+  completed_at         DateTime?
+
+  @@index([housekeeper_id])
+  @@index([boss_battle_id])
+  @@index([status])
+  @@map("boss_battle_attempts")
+}
+
+model QuestDialogue {
+  id                   String   @id @default(uuid())
+
+  // Dialogue Details
+  dialogue_id          String   @unique // "airport_arrival"
+  title                String
+  description          String   @db.Text
+
+  // Structure
+  dialogue_tree        Json     // Full branching dialogue structure
+  // Example: {
+  //   "start": { text: "Bonjour!", speaker: "guard", options: [...] },
+  //   "nodes": { ... }
+  // }
+
+  // NPCs involved
+  npcs                 Json     // [{ id, name, avatar, voice_id }]
+
+  // Audio
+  has_voice            Boolean  @default(false)
+  voice_urls           Json?    // Map of node_id -> audio_url
+
+  // Gameplay
+  min_level            String   // CECRL level
+  category             String   // vocabulary, grammar, cultural
+  tags                 String[]
+
+  // Learning Objectives
+  vocabulary_focus     String[] // Key words practiced
+  grammar_focus        String[] // Grammar points
+
+  // Stats
+  times_played         Int      @default(0)
+  avg_success_rate     Float?
+
+  // Status
+  active               Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([dialogue_id])
+  @@index([category])
+  @@map("quest_dialogues")
+}
+
+model HeroAvatar {
+  id                   String   @id @default(uuid())
+  housekeeper_id       String   @unique
+
+  // Avatar Customization
+  base_model           String   @default("default") // Avatar base type
+  skin_tone            String   @default("medium")
+  hair_style           String   @default("short")
+  hair_color           String   @default("brown")
+  outfit               String   @default("casual")
+  accessories          String[] // ["glasses", "hat"]
+
+  // Equipped Items (from Marketplace)
+  equipped_items       Json     // { head: item_id, body: item_id, ... }
+
+  // 3D Model Data
+  model_config         Json?    // Three.js configuration
+  animation_set        String   @default("standard")
+
+  // Display Name
+  hero_name            String?  // Optional custom name
+  hero_title           String?  // "Le Voyageur", earned from quests
+
+  // Metadata
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@map("hero_avatars")
+}
+
+model QuestCinematic {
+  id                   String   @id @default(uuid())
+
+  // Cinematic Details
+  cinematic_id         String   @unique // "world1_intro"
+  title                String
+  type                 String   // "world_intro", "world_outro", "quest_intro", "quest_outro", "boss_intro", "boss_victory"
+
+  // Content
+  scenes               Json     // Array of scenes with animations
+  // Example: [
+  //   { type: "text", content: "Il y a 6 mois...", duration: 3000, animation: "fadeIn" },
+  //   { type: "image", src: "/assets/...", animation: "slideInLeft" },
+  //   { type: "dialogue", character: "narrator", text: "...", voice_url: "..." }
+  // ]
+
+  // Audio
+  background_music     String?
+  sound_effects        Json?    // Map of timing -> sound_url
+
+  // Settings
+  duration_seconds     Int      // Total duration
+  skippable            Boolean  @default(true)
+  auto_advance         Boolean  @default(true)
+
+  // Related Entity
+  related_world_id     String?
+  related_quest_id     String?
+  related_boss_id      String?
+
+  // Stats
+  times_viewed         Int      @default(0)
+  times_skipped        Int      @default(0)
+
+  // Status
+  active               Boolean  @default(true)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@index([cinematic_id])
+  @@index([type])
+  @@map("quest_cinematics")
+}
+// ========================================
+// EXTENDED QUIZ SYSTEM - Tous Types de Questions
+// ========================================
+
+// Type de question (ENUM étendu)
+enum QuestionType {
+  TEXT_ONLY          // Question texte → 4 options texte (existant)
+  TEXT_TO_IMAGE      // Texte → Cocher bonne image
+  IMAGE_TO_TEXT      // Image → 4 choix texte
+  AUDIO_TO_IMAGE     // Audio → Cocher bonne image
+  AUDIO_TO_TEXT      // Dictée (audio → écrire)
+  FILL_BLANK         // Compléter phrase
+  MATCHING           // Associer mots ↔ images
+  COLOR_DESCRIPTION  // Questions descriptives (couleur, forme)
+  ALPHABET           // Lettres alphabet (A1.0)
+  GENDER_SELECTION   // Masculin/Féminin
+  CONJUGATION        // Conjugaison verbes
+  DRAG_DROP          // Glisser-déposer
+  FREE_WRITING       // Écriture libre (courte)
+}
+
+// Catégorie de compétence
+enum SkillCategory {
+  LISTENING    // Écoute (audio questions)
+  SPEAKING     // Oral (pronunciation - future)
+  READING      // Lecture (text questions)
+  WRITING      // Écriture (fill blank, free writing)
+  GRAMMAR      // Grammaire (gender, conjugation)
+  VOCABULARY   // Vocabulaire (matching, images)
+  ALPHABET     // Alphabet (A1.0 pré-débutants)
+}
+
+// Question universelle (remplace LanguageQuizQuestion)
+model UniversalQuizQuestion {
+  id                    String   @id @default(uuid())
+
+  // Meta
+  question_type         QuestionType
+  skill_category        SkillCategory
+  difficulty_level      String   // A1.0, A1.1, A1.2, A2.1, ..., C2
+  category              String   // bedroom, bathroom, kitchen, etc.
+  subcategory           String?  // furniture, cleaning_products, etc.
+
+  // Question Content
+  question_text         String?  // Texte question (peut être null si audio-only)
+  question_audio_url    String?  // ElevenLabs audio URL
+  question_image_url    String?  // URL image principale
+
+  // Options (flexible JSON)
+  options               Json     // Structure varie selon question_type
+  correct_answer        Json     // Réponse correcte (peut être texte, index, array)
+
+  // Feedback
+  explanation_text      String
+  explanation_audio_url String?
+
+  // Metadata
+  times_shown           Int      @default(0)
+  times_correct         Int      @default(0)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  // Relations
+  responses             UniversalQuizResponse[]
+
+  @@index([question_type, difficulty_level])
+  @@index([skill_category, category])
+}
+
+// Response universelle
+model UniversalQuizResponse {
+  id                    String   @id @default(uuid())
+
+  question_id           String
+  question              UniversalQuizQuestion @relation(fields: [question_id], references: [id])
+
+  housekeeper_id        String
+  housekeeper           Housekeeper @relation(fields: [housekeeper_id], references: [id])
+
+  // User Answer (flexible)
+  user_answer           Json     // Peut être texte, index, array selon type
+  is_correct            Boolean
+
+  // Context
+  session_id            String?
+  time_taken_seconds    Int?
+  xp_earned             Int      @default(0)
+
+  created_at            DateTime @default(now())
+
+  @@index([housekeeper_id, created_at])
+  @@index([session_id])
+}
+
+// ============================================================================
+// MODULE AGENT DE TERRAIN - Field Work Management
+// ============================================================================
+
+// Mission terrain avec propriété et tâches
+model Mission {
+  id                       String   @id @default(uuid())
+  
+  // Relations
+  housekeeper_id           String
+  housekeeper              Housekeeper @relation(fields: [housekeeper_id], references: [id], onDelete: Cascade)
+  
+  // Status & Type
+  status                   String   @default("pending") // pending, assigned, accepted, in_progress, paused, completed, validated, cancelled
+  mission_type             String   // checkout, checkin, deep_clean, maintenance, inspection
+  
+  // Property Info (JSON pour flexibilité)
+  property                 Json?    // { id, name, address, city, postalCode, coordinates: { lat, lng } }
+  
+  // Scheduling
+  scheduled_date           DateTime
+  scheduled_start_time     String?  // "14:00"
+  estimated_duration_min   Int?
+  
+  // Access
+  access_code              String?
+  access_instructions      String?  @db.Text
+  
+  // Policies
+  smoking_policy           String?  // non_smoking, smoking
+  expected_occupancy       String?  // empty, checkout_in_progress, guest_may_return, owner_present, family_present
+  occupancy_note           String?  @db.Text
+  
+  // Instructions
+  instructions             String?  @db.Text
+  manager_notes            String?  @db.Text
+  
+  // Tasks (JSON array)
+  tasks                    Json?    // [{ id, label, category, productNumber, tool, isPriority, instructions, instructionsFALC, estimatedMinutes, completedAt }]
+  
+  // Manager
+  manager_id               String?
+  
+  // Relations
+  incidents                Incident[]
+  sos_events               SOSEvent[]
+  evacuation_event         EvacuationEvent?
+  checkin_pointage         Pointage?        @relation("MissionCheckin")
+  checkout_pointage        Pointage?        @relation("MissionCheckout")
+  mission_report           MissionReport?
+  security_alerts          SecurityAlert[]
+
+  // Metadata
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+  
+  @@index([housekeeper_id, scheduled_date])
+  @@index([status])
+  @@map("missions")
+}
+
+// Incident terrain avec preuves
+model Incident {
+  id                       String   @id @default(uuid())
+  
+  // Relations
+  mission_id               String
+  mission                  Mission  @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+  
+  // Type & Severity
+  incident_type            String   // cigarette_smell, cigarette_butts, drugs_found, sexual_objects, guest_still_present, guest_returned_early
+  severity                 String   // low, medium, high, critical
+  
+  // Location
+  gps_position             Json?    // { lat, lng, accuracy, timestamp }
+  
+  // Evidence (JSON array)
+  evidence                 Json     @default("[]") // [{ id, type, uri, timestamp, status, gpsPosition, notes }]
+  
+  // Manager Call
+  manager_called           Boolean  @default(false)
+  manager_called_at        DateTime?
+  
+  // Notes & Resolution
+  notes                    String?  @db.Text
+  resolved_at              DateTime?
+  resolution               String?  @db.Text
+  
+  // Metadata
+  timestamp                DateTime @default(now())
+  
+  @@index([mission_id])
+  @@index([severity])
+  @@map("incidents")
+}
+
+// Événement SOS d'urgence
+model SOSEvent {
+  id                       String   @id @default(uuid())
+  
+  // Relations
+  mission_id               String
+  mission                  Mission  @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+  
+  // Category & Action
+  sos_category             String   // access, products, problem, danger
+  sos_action               String?  // call_employer, call_emergency, leave_premises
+  
+  // Location
+  gps_position             Json?    // { lat, lng, accuracy, timestamp }
+  
+  // Resolution
+  resolved                 Boolean  @default(false)
+  resolved_at              DateTime?
+  
+  // Metadata
+  timestamp                DateTime @default(now())
+  
+  @@index([mission_id])
+  @@map("sos_events")
+}
+
+// Événement d'évacuation
+model EvacuationEvent {
+  id                       String   @id @default(uuid())
+  
+  // Relations
+  mission_id               String   @unique
+  mission                  Mission  @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+  
+  // Motivation
+  motivation_id            String   // person_threatening, person_aggressive, unsafe_environment, etc.
+  motivation_label         String
+  custom_reason            String?  @db.Text
+  
+  // Location
+  gps_position             Json?    // { lat, lng, accuracy, timestamp }
+  
+  // Employer Notification
+  employer_notified        Boolean  @default(false)
+  employer_notified_at     DateTime?
+  
+  // Metadata
+  timestamp                DateTime @default(now())
+  
+  @@index([mission_id])
+  @@map("evacuation_events")
+}
+
+// Pointage (Check-in/Check-out)
+model Pointage {
+  id                       String   @id @default(uuid())
+  
+  // Relations
+  mission_checkin_id       String?  @unique
+  mission_checkin          Mission? @relation("MissionCheckin", fields: [mission_checkin_id], references: [id], onDelete: Cascade)
+  
+  mission_checkout_id      String?  @unique
+  mission_checkout         Mission? @relation("MissionCheckout", fields: [mission_checkout_id], references: [id], onDelete: Cascade)
+  
+  // Method
+  pointage_method          String   // qr, gps, manual, nfc
+  
+  // GPS Data
+  gps_position             Json?    // { lat, lng, accuracy, timestamp }
+  
+  // Verification
+  verified                 Boolean  @default(false)
+  
+  // Metadata
+  timestamp                DateTime @default(now())
+  
+  @@index([mission_checkin_id])
+  @@index([mission_checkout_id])
+  @@map("pointages")
+}
+
+// Rapport de mission
+model MissionReport {
+  id                       String   @id @default(uuid())
+  
+  // Relations
+  mission_id               String   @unique
+  mission                  Mission  @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+  
+  // Report Type
+  report_type              String   // internal, guest_ready
+  
+  // Validity
+  validity                 String   // valid, valid_with_incidents, conditional, invalid
+  
+  // Task Summary
+  tasks_completed          Int      @default(0)
+  tasks_total              Int      @default(0)
+  
+  // Notes
+  notes                    String?  @db.Text
+  
+  // Photos (JSON array)
+  photos                   Json     @default("[]") // Evidence photos approved for guest
+  pending_evidence         Json     @default("[]") // Evidence awaiting manager validation
+  
+  // Signature
+  signature                String?  // Base64 or URL
+  
+  // Metadata
+  generated_at             DateTime @default(now())
+  
+  @@index([mission_id])
+  @@index([validity])
+  @@map("mission_reports")
+}
+
+// Alertes de sécurité
+model SecurityAlert {
+  id                       String   @id @default(uuid())
+
+  // Relations
+  housekeeper_id           String
+  housekeeper              Housekeeper @relation(fields: [housekeeper_id], references: [id], onDelete: Cascade)
+  mission_id               String?
+  mission                  Mission?     @relation(fields: [mission_id], references: [id], onDelete: Cascade)
+
+  // Type d'alerte
+  alert_type               String   // unauthorized_device, gps_too_far, gps_imprecise, wrong_property, suspicious_timing
+  severity                 String   // low, medium, high, critical
+
+  // Détails
+  title                    String
+  message                  String   @db.Text
+  details                  Json?    // Données contextuelles (distance, accuracy, device_id, etc.)
+
+  // Localisation
+  attempted_location       Json?    // { lat, lng, accuracy }
+  expected_location        Json?    // { lat, lng }
+
+  // Status
+  status                   String   @default("unread") // unread, read, acknowledged, resolved, dismissed
+  acknowledged_by          String?  // Manager ID
+  acknowledged_at          DateTime?
+  resolution_notes         String?  @db.Text
+
+  // Metadata
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  @@index([housekeeper_id])
+  @@index([mission_id])
+  @@index([alert_type])
+  @@index([severity])
+  @@index([status])
+  @@index([created_at])
+  @@map("security_alerts")
+}
+
