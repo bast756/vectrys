@@ -146,6 +146,10 @@ class SMSService {
    * @returns {Promise<Object>} Résultat de l'envoi
    */
   async sendSMS(to, message, options = {}) {
+    if (!twilioConfig.isReady()) {
+      console.warn('⚠️ SMS non envoyé — Twilio non configuré');
+      return { succes: false, raison: 'SERVICE_DESACTIVE' };
+    }
     const timestampDebut = Date.now();
     try {
       const formatted = this.formatPhoneNumber(to);
@@ -408,6 +412,9 @@ class SMSService {
    * @returns {Promise<Object>} Statut du message
    */
   async verifySMSDelivery(messageSid) {
+    if (!twilioConfig.isReady()) {
+      return { erreur: 'Twilio non configuré' };
+    }
     try {
       const client = twilioConfig.getClient();
       const message = await client.messages(messageSid).fetch();

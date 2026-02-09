@@ -7,22 +7,31 @@ class ServiceSMS {
   constructor() {
     if (ServiceSMS.instance) return ServiceSMS.instance;
 
+    this.client = null;
+    this.numeroTwilio = null;
+    this.historiqueEnvois = new Map();
+    this.disabled = false;
+
     if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
-      throw new Error('❌ Credentials Twilio manquants');
+      console.warn('⚠️ Credentials Twilio manquants — Service SMS désactivé');
+      this.disabled = true;
+    } else {
+      this.client = twilio(
+        process.env.TWILIO_ACCOUNT_SID,
+        process.env.TWILIO_AUTH_TOKEN
+      );
+      this.numeroTwilio = process.env.TWILIO_PHONE_NUMBER;
+      console.log('✅ Service SMS initialisé');
     }
 
-    this.client = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
-
-    this.numeroTwilio = process.env.TWILIO_PHONE_NUMBER;
-    this.historiqueEnvois = new Map();
-    console.log('✅ Service SMS initialisé');
     ServiceSMS.instance = this;
   }
 
   async envoyerSMS(numeroDestinataire, message, options = {}) {
+    if (this.disabled) {
+      console.warn('⚠️ SMS non envoyé — service désactivé (credentials manquants)');
+      return { succes: false, raison: 'SERVICE_DESACTIVE' };
+    }
     const timestampDebut = Date.now();
     try {
       const numeroValide = this.validerNumero(numeroDestinataire);

@@ -108,7 +108,8 @@ class TwilioConfig {
    */
   getClient() {
     if (!this.client) {
-      throw new Error('Client Twilio non initialisé — vérifiez vos credentials');
+      console.warn('⚠️ Client Twilio non initialisé — vérifiez vos credentials');
+      return null;
     }
     return this.client;
   }
@@ -119,7 +120,8 @@ class TwilioConfig {
    */
   getPhoneNumber() {
     if (!this.phoneNumber) {
-      throw new Error('Numéro Twilio non configuré');
+      console.warn('⚠️ Numéro Twilio non configuré');
+      return null;
     }
     return this.phoneNumber;
   }
