@@ -2,15 +2,35 @@
  * VECTRYS — Service Firebase (notifications push)
  *
  * Notifications push via Firebase Cloud Messaging (FCM).
- * Necessite FIREBASE_SERVICE_ACCOUNT_PATH et FIREBASE_PROJECT_ID.
  *
- * @version 1.0.0
+ * Config supportee :
+ *   - FIREBASE_SERVICE_ACCOUNT : JSON stringifie (Railway, Render, etc.)
+ *   - FIREBASE_SERVICE_ACCOUNT_PATH : chemin vers le fichier JSON (dev local)
+ *   - FIREBASE_PROJECT_ID : requis dans les deux cas
+ *
+ * @version 1.1.0
  */
 
 import admin from 'firebase-admin';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 
 let messaging = null;
+
+function getServiceAccount() {
+  // Priorite 1 : variable d'env JSON stringifie (production/Railway)
+  const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (saJson) {
+    return JSON.parse(saJson);
+  }
+
+  // Priorite 2 : chemin vers fichier (dev local)
+  const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  if (saPath && existsSync(saPath)) {
+    return JSON.parse(readFileSync(saPath, 'utf-8'));
+  }
+
+  return null;
+}
 
 function initFirebase() {
   if (admin.apps.length) {
@@ -18,16 +38,15 @@ function initFirebase() {
     return;
   }
 
-  const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   const projectId = process.env.FIREBASE_PROJECT_ID;
+  const serviceAccount = getServiceAccount();
 
-  if (!saPath || !projectId) {
-    console.warn('⚠️ Firebase non configure (FIREBASE_SERVICE_ACCOUNT_PATH / FIREBASE_PROJECT_ID manquant)');
+  if (!serviceAccount || !projectId) {
+    console.warn('⚠️ Firebase non configure (FIREBASE_SERVICE_ACCOUNT ou FIREBASE_SERVICE_ACCOUNT_PATH + FIREBASE_PROJECT_ID requis)');
     return;
   }
 
   try {
-    const serviceAccount = JSON.parse(readFileSync(saPath, 'utf-8'));
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       projectId,
