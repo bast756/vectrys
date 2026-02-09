@@ -32,6 +32,12 @@ import questRoutes from '../routes/quest.routes.js';
 import agentTerrainRoutes, { initializeSocketIO } from '../routes/agent-terrain.routes.js';
 import smsRoutes from '../routes/sms/smsRoutes.js';
 import smsRoutesV2 from '../routes/sms.routes.js';
+import googleMapsRoutes from '../routes/google-maps.routes.js';
+import googleOAuthRoutes from '../routes/google-oauth.routes.js';
+import openWeatherRoutes from '../routes/openweather.routes.js';
+import emailRoutes from '../routes/email.routes.js';
+import notificationRoutes from '../routes/notifications.routes.js';
+import authRoutes from '../routes/auth.routes.js';
 import cron from 'node-cron';
 import alertService from '../services/alert.service.js';
 
@@ -136,6 +142,12 @@ app.get('/health', (req, res) => {
       sms_fate: 'operational',
       xp_system: 'operational',
       badge_system: 'operational',
+      google_maps: process.env.GOOGLE_MAPS_API_KEY ? 'operational' : 'not_configured',
+      google_oauth: process.env.GOOGLE_CLIENT_ID ? 'operational' : 'not_configured',
+      openweather: process.env.OPENWEATHER_API_KEY ? 'operational' : 'not_configured',
+      sendgrid: process.env.SENDGRID_API_KEY ? 'operational' : 'not_configured',
+      firebase: process.env.FIREBASE_SERVICE_ACCOUNT_PATH ? 'operational' : 'not_configured',
+      auth_guest_portal: process.env.JWT_SECRET ? 'operational' : 'not_configured',
     },
     platform: 'Vectrys Lingua - Complete AAA Learning Platform'
   });
@@ -159,8 +171,14 @@ app.get('/', (req, res) => {
       agent_terrain: '/api/agent-terrain/*',
       sms_fate: '/api/v2/sms/*',
       webhooks: '/api/webhooks/*',
+      google_maps: '/api/maps/*',
+      google_oauth: '/api/auth/google/*',
+      weather: '/api/weather/*',
+      email: '/api/email/*',
+      notifications: '/api/notifications/*',
+      auth: '/api/auth/*',
     },
-    total_routes: 75,
+    total_routes: 102,
     features: [
       'Housekeeper Management (6 routes)',
       'Language Quiz A1.1-C2 (6 routes)',
@@ -193,6 +211,12 @@ app.use('/api/agent-terrain', agentTerrainRoutes);
 app.use('/api/sms', smsRoutes);
 app.use('/api/v2/sms', smsRoutesV2);       // 🆕 Routes SMS FATE v2
 app.use('/api/webhooks', smsRoutesV2);      // 🆕 Webhooks Twilio
+app.use('/api/maps', googleMapsRoutes);
+app.use('/api/auth/google', googleOAuthRoutes);
+app.use('/api/weather', openWeatherRoutes);
+app.use('/api/email', emailRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/auth', authRoutes);
 
 // Data Engine v3.0 — Routes INTERNES (RBAC protégé)
 app.use(

@@ -28,7 +28,6 @@ model Organization {
 
   // Relations
   users                User[]
-  guests               Guest[]
   bookings             Booking[]
   conversations        Conversation[]
 
@@ -73,30 +72,30 @@ model User {
 // ============================================================================
 
 model Guest {
-  id                   String   @id @default(uuid())
-  organization_id      String
-  organization         Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  id              String       @id @default(cuid())
+  email           String?      @unique
+  phone           String?
+  firstName       String
+  lastName        String
+  language        String       @default("fr")
+  authProvider    AuthProvider
+  passwordHash    String?
+  refreshToken    String?
+  legalAcceptedAt DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  // Identity
-  email                String
-  first_name           String
-  last_name            String
-  phone                String?
-  language             String   @default("fr") // fr, en, es, it, de, etc.
+  // Guest Portal relations
+  reservations    Reservation[]
+  guestMessages   GuestMessage[]
+  ratings         Rating[]
+  orders          Order[]
 
-  // Preferences
-  preferences          Json?    // Dietary, accessibility, etc.
+  // Legacy relations (Booking, Conversation — unused but kept for schema integrity)
+  bookings        Booking[]
+  conversations   Conversation[]
 
-  // Relations
-  bookings             Booking[]
-  conversations        Conversation[]
-
-  // Metadata
-  created_at           DateTime @default(now())
-  updated_at           DateTime @updatedAt
-
-  @@unique([organization_id, email])
-  @@map("guests")
+  @@index([email])
 }
 
 model Booking {
@@ -1678,4 +1677,285 @@ model AuditLog {
   @@index([entity_type, entity_id])
   @@index([created_at])
   @@map("audit_logs")
+}
+
+// ============================================================================
+// GUEST PORTAL V5 — Auth, Reservations, Services, Ratings
+// ============================================================================
+
+enum AuthProvider {
+  EMAIL_MAGIC_LINK
+  GOOGLE
+  APPLE
+  RESERVATION_CODE
+}
+
+model MagicLink {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([email])
+}
+
+// ─── PROPERTIES ─────────────────────────────
+
+model Owner {
+  id         String     @id @default(cuid())
+  email      String     @unique
+  firstName  String
+  lastName   String
+  company    String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  properties Property[]
+}
+
+model Property {
+  id           String   @id @default(cuid())
+  name         String
+  address      String
+  city         String?
+  zipCode      String?
+  country      String   @default("FR")
+  latitude     Float
+  longitude    Float
+  checkInTime  String   @default("15:00")
+  checkOutTime String   @default("11:00")
+  wifiName     String?
+  wifiPassword String?
+  houseRules   Json?
+  cameras      Json?    // déclaration légale caméras
+  pets         Json?    // déclaration animaux
+  alarms       Json?    // déclaration alarmes
+  imageUrls    String[] // photos du logement
+
+  ownerId String
+  owner   Owner  @relation(fields: [ownerId], references: [id])
+
+  reservations    Reservation[]
+  services        Service[]
+  transportPoints TransportPoint[]
+  checklistItems  ChecklistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+// ─── RESERVATIONS ───────────────────────────
+
+model Reservation {
+  id           String            @id @default(cuid())
+  code         String            @unique // code accès guest (ex: VEC-A7K9)
+  guestId      String
+  guest        Guest             @relation(fields: [guestId], references: [id])
+  propertyId   String
+  property     Property          @relation(fields: [propertyId], references: [id])
+  checkIn      DateTime
+  checkOut     DateTime
+  guestCount   Int               @default(1)
+  status       ReservationStatus @default(CONFIRMED)
+  source       String?           // Airbnb, Booking, direct
+  checkinDone  Boolean           @default(false)
+  checkoutDone Boolean           @default(false)
+
+  guestMessages         GuestMessage[]
+  ratings               Rating[]
+  orders                Order[]
+  checklistCompletions  ChecklistCompletion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([guestId])
+  @@index([propertyId])
+  @@index([code])
+}
+
+enum ReservationStatus {
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+// ─── CHECKOUT CHECKLIST ─────────────────────
+
+model ChecklistItem {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  label      String   // FR par défaut
+  labelEn    String?
+  labelEs    String?
+  order      Int
+  required   Boolean  @default(true)
+
+  completions ChecklistCompletion[]
+
+  @@index([propertyId])
+}
+
+model ChecklistCompletion {
+  id              String   @id @default(cuid())
+  reservationId   String
+  reservation     Reservation   @relation(fields: [reservationId], references: [id])
+  checklistItemId String
+  checklistItem   ChecklistItem @relation(fields: [checklistItemId], references: [id])
+  completed       Boolean       @default(false)
+  completedAt     DateTime?
+  photoUrl        String?
+
+  @@unique([reservationId, checklistItemId])
+}
+
+// ─── GUEST MESSAGING ────────────────────────
+
+model GuestMessage {
+  id                String     @id @default(cuid())
+  reservationId     String
+  reservation       Reservation @relation(fields: [reservationId], references: [id])
+  senderId          String
+  guest             Guest      @relation(fields: [senderId], references: [id])
+  senderType        SenderType
+  content           String
+  translatedContent String?
+  readAt            DateTime?
+  createdAt         DateTime   @default(now())
+
+  @@index([reservationId, createdAt])
+}
+
+enum SenderType {
+  GUEST
+  HOST
+  SYSTEM
+}
+
+// ─── SERVICES & ORDERS ──────────────────────
+
+model Service {
+  id          String          @id @default(cuid())
+  propertyId  String
+  property    Property        @relation(fields: [propertyId], references: [id])
+  name        String
+  nameEn      String?
+  description String?
+  category    ServiceCategory
+  price       Int             // centimes
+  currency    String          @default("EUR")
+  imageUrl    String?
+  available   Boolean         @default(true)
+  stock       Int?            // null = illimité
+
+  orderItems OrderItem[]
+
+  @@index([propertyId, category])
+}
+
+enum ServiceCategory {
+  MINIBAR
+  BREAKFAST
+  EXPERIENCE
+  TRANSPORT
+  CLEANING
+  OTHER
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  reservationId   String
+  reservation     Reservation @relation(fields: [reservationId], references: [id])
+  guestId         String
+  guest           Guest       @relation(fields: [guestId], references: [id])
+  totalAmount     Int         // centimes
+  currency        String      @default("EUR")
+  stripePaymentId String?
+  status          OrderStatus @default(PENDING)
+
+  items OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reservationId])
+  @@index([guestId])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+  quantity  Int
+  unitPrice Int     // centimes, snapshot au moment de la commande
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+// ─── RATINGS ────────────────────────────────
+
+model Rating {
+  id            String      @id @default(cuid())
+  reservationId String      @unique
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  guestId       String
+  guest         Guest       @relation(fields: [guestId], references: [id])
+  overall       Int         // 1-5
+  cleanliness   Int?        // 1-5
+  communication Int?        // 1-5
+  location      Int?        // 1-5
+  comfort       Int?        // 1-5
+  comment       String?
+  createdAt     DateTime    @default(now())
+
+  @@index([guestId])
+}
+
+// ─── GPS & TRANSPORT ────────────────────────
+
+model TransportPoint {
+  id             String        @id @default(cuid())
+  propertyId     String
+  property       Property      @relation(fields: [propertyId], references: [id])
+  name           String
+  type           TransportType
+  latitude       Float
+  longitude      Float
+  distanceMeters Int
+  walkMinutes    Int?
+  transitMinutes Int?
+  driveMinutes   Int?
+  notes          String?
+  notesEn        String?
+
+  @@index([propertyId, type])
+}
+
+enum TransportType {
+  METRO
+  BUS
+  TRAIN
+  TAXI_STAND
+  AIRPORT
+  SUPERMARKET
+  PHARMACY
+  RESTAURANT
+  ATTRACTION
+  PARKING
 }
