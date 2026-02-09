@@ -16,12 +16,17 @@ class ServiceSMS {
       console.warn('⚠️ Credentials Twilio manquants — Service SMS désactivé');
       this.disabled = true;
     } else {
-      this.client = twilio(
-        process.env.TWILIO_ACCOUNT_SID,
-        process.env.TWILIO_AUTH_TOKEN
-      );
-      this.numeroTwilio = process.env.TWILIO_PHONE_NUMBER;
-      console.log('✅ Service SMS initialisé');
+      try {
+        this.client = twilio(
+          process.env.TWILIO_ACCOUNT_SID,
+          process.env.TWILIO_AUTH_TOKEN
+        );
+        this.numeroTwilio = process.env.TWILIO_PHONE_NUMBER;
+        console.log('✅ Service SMS initialisé');
+      } catch (err) {
+        console.warn('⚠️ Twilio init échouée — Service SMS désactivé:', err.message);
+        this.disabled = true;
+      }
     }
 
     ServiceSMS.instance = this;
@@ -129,4 +134,11 @@ class ServiceSMS {
   }
 }
 
-export default new ServiceSMS();
+let instance;
+try {
+  instance = new ServiceSMS();
+} catch (err) {
+  console.warn('⚠️ ServiceSMS crash évité:', err.message);
+  instance = { disabled: true, envoyerSMS: async () => ({ succes: false, raison: 'SERVICE_DESACTIVE' }), testerConnexion: async () => false, validerNumero: () => null, verifierRateLimiting: () => false };
+}
+export default instance;
