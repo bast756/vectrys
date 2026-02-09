@@ -17,16 +17,20 @@ import { readFileSync, existsSync } from 'fs';
 let messaging = null;
 
 function getServiceAccount() {
-  // Priorite 1 : variable d'env JSON stringifie (production/Railway)
-  const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (saJson) {
-    return JSON.parse(saJson);
-  }
+  try {
+    // Priorite 1 : variable d'env JSON stringifie (production/Railway)
+    const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (saJson) {
+      return JSON.parse(saJson);
+    }
 
-  // Priorite 2 : chemin vers fichier (dev local)
-  const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-  if (saPath && existsSync(saPath)) {
-    return JSON.parse(readFileSync(saPath, 'utf-8'));
+    // Priorite 2 : chemin vers fichier (dev local)
+    const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+    if (saPath && existsSync(saPath)) {
+      return JSON.parse(readFileSync(saPath, 'utf-8'));
+    }
+  } catch (err) {
+    console.warn('⚠️ Firebase service account invalide:', err.message);
   }
 
   return null;
@@ -58,7 +62,11 @@ function initFirebase() {
   }
 }
 
-initFirebase();
+try {
+  initFirebase();
+} catch (err) {
+  console.warn('⚠️ Firebase init crash evite:', err.message);
+}
 
 function ensureFirebase() {
   if (!messaging) {
