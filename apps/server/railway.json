@@ -5,7 +5,7 @@
     "buildCommand": "npm install && npx prisma generate"
   },
   "deploy": {
-    "startCommand": "npx prisma migrate resolve --rolled-back 20260209192918_init && npx prisma migrate deploy && node server/index.js",
+    "startCommand": "echo 'DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO PUBLIC;' | npx prisma db execute --schema=prisma/schema.prisma --stdin && npx prisma migrate deploy && node server/index.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
