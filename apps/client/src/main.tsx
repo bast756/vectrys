@@ -1,15 +1,42 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from '@/store';
+import LoginPage from '@/pages/LoginPage';
+import RegisterPage from '@/pages/RegisterPage';
+import TermsPage from '@/pages/TermsPage';
+import HomePage from '@/pages/HomePage';
+import GoogleCallback from '@/pages/GoogleCallback';
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function GuestRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
 
 function App() {
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>VECTRYS Guest Portal</h1>
-      <p>✅ Monorepo initialisé</p>
-      <p>✅ Frontend React + Vite + TypeScript</p>
-      <p>✅ Integration Kit prêt (voir /integration-kit/)</p>
-      <p>⏳ Backend NestJS en cours...</p>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
+        <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+        <Route path="/auth/google/callback" element={<GoogleCallback />} />
+
+        {/* Protected routes */}
+        <Route path="/terms" element={<ProtectedRoute><TermsPage /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
