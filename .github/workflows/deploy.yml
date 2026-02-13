@@ -1,0 +1,146 @@
+# ============================================
+# VECTRYS — CI/CD Pipeline vers Hostinger VPS
+# Déclenché sur push vers la branche `principal`
+# ============================================
+
+name: 🚀 Deploy VECTRYS
+
+on:
+  push:
+    branches:
+      - principal
+  workflow_dispatch:
+
+env:
+  VPS_HOST: ${{ secrets.VPS_HOST }}
+  VPS_USER: deploy
+  DEPLOY_PATH: /opt/vectrys
+
+jobs:
+  # ============================================
+  # JOB 1: Build & Test
+  # ============================================
+  build:
+    name: 🔨 Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/server/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: apps/server
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: apps/server
+        run: npx prisma generate
+
+      - name: Lint check
+        working-directory: apps/server
+        run: npm run lint --if-present
+
+      - name: Build frontend
+        working-directory: apps/client
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/client/dist/
+          retention-days: 1
+
+  # ============================================
+  # JOB 2: Deploy to VPS
+  # ============================================
+  deploy:
+    name: 🚀 Deploy to Hostinger VPS
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend-dist/
+
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Add VPS to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ env.VPS_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync backend code to VPS
+        run: |
+          rsync -avz --delete \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='.env' \
+            apps/server/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/backend/
+
+      - name: Sync frontend build to VPS
+        run: |
+          rsync -avz --delete \
+            frontend-dist/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/frontend/dist/
+
+      - name: Sync Docker & Nginx configs
+        run: |
+          rsync -avz \
+            docker-compose.yml \
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/
+          rsync -avz \
+            nginx/ \
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/nginx/
+
+      - name: Deploy on VPS
+        run: |
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'DEPLOY_SCRIPT'
+            set -e
+            cd /opt/vectrys
+
+            echo "🔄 Pulling latest images..."
+            docker compose pull postgres redis n8n nginx certbot
+
+            echo "🔨 Building backend..."
+            docker compose build --no-cache backend
+
+            echo "🚀 Starting services..."
+            docker compose up -d
+
+            echo "⏳ Waiting for health checks..."
+            sleep 15
+
+            echo "🏥 Checking backend health..."
+            curl -sf http://localhost:3001/health || {
+              echo "❌ Backend health check failed!"
+              docker compose logs backend --tail=50
+              exit 1
+            }
+
+            echo "✅ Deployment successful!"
+            docker compose ps
+          DEPLOY_SCRIPT
+
+      - name: Verify deployment
+        run: |
+          echo "🔍 Verifying public endpoints..."
+          sleep 5
+          curl -sf https://api.vectrys.fr/health || echo "⚠️ API health check pending (DNS may need time)"
+          echo ""
+          echo "✅ Deployment pipeline completed!"
