@@ -81,7 +81,7 @@ jobs:
 
       - name: Sync backend code to VPS
         run: |
-          rsync -avz --delete \
+          rsync -avz --delete --no-group --no-owner --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r \
             --exclude='node_modules' \
             --exclude='.git' \
             --exclude='.env' \
@@ -89,15 +89,15 @@ jobs:
 
       - name: Sync frontend build to VPS
         run: |
-          rsync -avz --delete \
+          rsync -avz --delete --no-group --no-owner --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r \
             frontend-dist/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/frontend/dist/
 
       - name: Sync Docker & Nginx configs
         run: |
-          rsync -avz \
+          rsync -avz --no-group --no-owner --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r \
             docker-compose.yml \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/
-          rsync -avz \
+          rsync -avz --no-group --no-owner --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r \
             nginx/ \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/nginx/
 
