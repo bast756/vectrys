@@ -49,14 +49,14 @@ function App() {
     <BrowserRouter>
       <Routes>
         {/* Public routes */}
-        <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
-        <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+        <Route path="/login" element={<Navigate to="/employee/login" replace />} />
+        <Route path="/register" element={<Navigate to="/employee/login" replace />} />
         <Route path="/auth/google/callback" element={<GoogleCallback />} />
 
         {/* Protected routes */}
         <Route path="/terms" element={<ProtectedRoute><TermsPage /></ProtectedRoute>} />
         <Route path="/call-assistant" element={<CallAssistantPage />} />
-        <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+        <Route path="/" element={<Navigate to="/employee/login" replace />} />
 
         {/* Employee public routes */}
         <Route path="/employee/login" element={<EmployeeLoginPage />} />
@@ -78,7 +78,7 @@ function App() {
         </Route>
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/employee/login" replace />} />
       </Routes>
     </BrowserRouter>
   );

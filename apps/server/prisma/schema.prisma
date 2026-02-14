@@ -1979,6 +1979,8 @@ model Employee {
   work_schedule_end   String    @default("19:00") // Authorized connection end
   nda_accepted_at     DateTime?           // Non-disclosure agreement acceptance date
   last_login          DateTime?
+  last_activity       DateTime?           // Updated on each authenticated request
+  locked_at           DateTime?           // Set when account locked for 30-day inactivity
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
 

@@ -31,12 +31,14 @@ router.post('/login', async (req, res) => {
         code: result.otpCode,
         purpose: 'login_2fa',
       });
+      console.log(`[Employee Auth] OTP email sent to ${result.email}`);
     } catch (emailErr) {
       console.error('[Employee Auth] Failed to send OTP email:', emailErr.message);
-      // Continue anyway — in dev mode, log the code
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[DEV] OTP code for ${matricule}: ${result.otpCode}`);
+      if (emailErr.response?.body) {
+        console.error('[Employee Auth] SendGrid details:', JSON.stringify(emailErr.response.body));
       }
+      // Always log OTP to console as fallback until email service is properly configured
+      console.log(`[Employee Auth] OTP fallback for ${matricule}: ${result.otpCode}`);
     }
 
     // Never send the OTP code or internal employee data to client
@@ -117,10 +119,11 @@ router.post('/register', requireEmployee, requireCEO, async (req, res) => {
       console.log(`[Employee Auth] Invitation sent to ${email} — matricule: ${employee.matricule}`);
     } catch (emailErr) {
       console.error('[Employee Auth] Failed to send invitation email:', emailErr.message);
-      // Still return success — the employee was created
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[DEV] Temp password for ${employee.matricule}: ${tempPassword}`);
+      if (emailErr.response?.body) {
+        console.error('[Employee Auth] SendGrid details:', JSON.stringify(emailErr.response.body));
       }
+      // Always log temp password as fallback until email service is properly configured
+      console.log(`[Employee Auth] Invitation fallback for ${employee.matricule}: ${tempPassword}`);
     }
 
     res.status(201).json({
@@ -174,11 +177,13 @@ router.post('/forgot-password', async (req, res) => {
           code: result._otpCode,
           purpose: 'password_reset',
         });
+        console.log(`[Employee Auth] Reset OTP email sent to ${email}`);
       } catch (emailErr) {
         console.error('[Employee Auth] Failed to send reset OTP:', emailErr.message);
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[DEV] Reset OTP for ${email}: ${result._otpCode}`);
+        if (emailErr.response?.body) {
+          console.error('[Employee Auth] SendGrid details:', JSON.stringify(emailErr.response.body));
         }
+        console.log(`[Employee Auth] Reset OTP fallback for ${email}: ${result._otpCode}`);
       }
     }
 
@@ -213,6 +218,16 @@ router.post('/logout-session', requireEmployee, async (req, res) => {
   try {
     await employeeAuthService.logoutSession(req.employee.id);
     res.json({ success: true, message: 'Session fermee' });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/employee/auth/unlock/:employeeId — CEO only ────
+router.post('/unlock/:employeeId', requireEmployee, requireCEO, async (req, res) => {
+  try {
+    const result = await employeeAuthService.unlockEmployee(req.params.employeeId);
+    res.json({ success: true, data: result });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }

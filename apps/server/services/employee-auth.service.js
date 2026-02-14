@@ -25,7 +25,7 @@ function generateEmployeeRefreshToken(employee) {
   return jwt.sign(
     { sub: employee.id, type: 'employee_refresh' },
     JWT_REFRESH_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '30d' }
   );
 }
 
@@ -138,6 +138,12 @@ async function verifyEmployeeOtp(employeeId, code, purpose) {
 // ─── REGISTER (CEO creates employee) ─────────────────────────
 
 async function registerEmployee({ firstName, lastName, email, role = 'employee', workScheduleStart, workScheduleEnd }) {
+  // Only @vectrys.fr emails allowed
+  const emailDomain = email.split('@')[1]?.toLowerCase();
+  if (emailDomain !== 'vectrys.fr') {
+    throw Object.assign(new Error('Seuls les emails @vectrys.fr sont autorises'), { statusCode: 400 });
+  }
+
   const existing = await prisma.employee.findFirst({
     where: { email },
   });
@@ -182,6 +188,14 @@ async function loginEmployee(matricule, password) {
     throw Object.assign(new Error('Identifiants invalides'), { statusCode: 401 });
   }
 
+  // Check if account is locked for inactivity
+  if (employee.locked_at) {
+    throw Object.assign(
+      new Error('Compte verrouille pour inactivite (30 jours). Contactez votre administrateur.'),
+      { statusCode: 403, code: 'ACCOUNT_LOCKED' }
+    );
+  }
+
   const valid = await bcrypt.compare(password, employee.password_hash);
   if (!valid) {
     throw Object.assign(new Error('Identifiants invalides'), { statusCode: 401 });
@@ -209,10 +223,10 @@ async function completeLogin(employeeId, code, ipAddress, userAgent) {
     throw Object.assign(new Error('Employe non trouve ou inactif'), { statusCode: 401 });
   }
 
-  // Update last login
+  // Update last login + last activity
   await prisma.employee.update({
     where: { id: employee.id },
-    data: { last_login: new Date() },
+    data: { last_login: new Date(), last_activity: new Date() },
   });
 
   // Check if login is outside work schedule
@@ -261,6 +275,20 @@ async function refreshToken(token) {
   if (!employee || !employee.active) {
     throw Object.assign(new Error('Employe non trouve ou inactif'), { statusCode: 401 });
   }
+
+  // Check if account is locked for inactivity
+  if (employee.locked_at) {
+    throw Object.assign(
+      new Error('Compte verrouille pour inactivite (30 jours). Contactez votre administrateur.'),
+      { statusCode: 403, code: 'ACCOUNT_LOCKED' }
+    );
+  }
+
+  // Update last_activity on refresh
+  await prisma.employee.update({
+    where: { id: employee.id },
+    data: { last_activity: new Date() },
+  });
 
   return {
     accessToken: generateEmployeeAccessToken(employee),
@@ -350,9 +378,29 @@ async function getEmployeeById(id) {
       id: true, matricule: true, first_name: true, last_name: true,
       email: true, role: true, active: true, avatar_url: true,
       temp_password: true, nda_accepted_at: true, last_login: true,
+      last_activity: true, locked_at: true,
       work_schedule_start: true, work_schedule_end: true,
     },
   });
+}
+
+// ─── UNLOCK EMPLOYEE (CEO unlocks locked account) ───────────
+
+async function unlockEmployee(employeeId) {
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) {
+    throw Object.assign(new Error('Employe non trouve'), { statusCode: 404 });
+  }
+  if (!employee.locked_at) {
+    return { alreadyUnlocked: true };
+  }
+
+  await prisma.employee.update({
+    where: { id: employeeId },
+    data: { locked_at: null, last_activity: new Date() },
+  });
+
+  return { unlocked: true, matricule: employee.matricule };
 }
 
 export default {
@@ -366,6 +414,7 @@ export default {
   logoutSession,
   getEmployeeById,
   generateEmployeeOtp,
+  unlockEmployee,
   verifyEmployeeAccessToken,
   verifyEmployeeRefreshToken,
 };

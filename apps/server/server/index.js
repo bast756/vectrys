@@ -522,6 +522,40 @@ cron.schedule('*/30 * * * *', async () => {
   }
 });
 
+// Verrouillage comptes inactifs 30 jours — verification quotidienne a 3h du matin
+cron.schedule('0 3 * * *', async () => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    // Find active employees with last_activity > 30 days ago (or never active)
+    const inactiveEmployees = await prisma.employee.findMany({
+      where: {
+        active: true,
+        locked_at: null,
+        OR: [
+          { last_activity: { lt: thirtyDaysAgo } },
+          { last_activity: null, created_at: { lt: thirtyDaysAgo } },
+        ],
+      },
+      select: { id: true, matricule: true, last_activity: true },
+    });
+
+    if (inactiveEmployees.length > 0) {
+      await prisma.employee.updateMany({
+        where: { id: { in: inactiveEmployees.map(e => e.id) } },
+        data: { locked_at: new Date() },
+      });
+
+      for (const emp of inactiveEmployees) {
+        console.log(`[CRON] Account locked for inactivity: ${emp.matricule} (last activity: ${emp.last_activity || 'never'})`);
+      }
+      console.log(`[CRON] ${inactiveEmployees.length} account(s) locked for 30-day inactivity`);
+    }
+  } catch (err) {
+    console.error('[CRON] Inactivity lock error:', err.message);
+  }
+});
+
 // ============================================================================
 // SERVER START
 // ============================================================================
