@@ -13,7 +13,7 @@ COPY package*.json ./
 COPY prisma ./prisma/
 
 # Installer les dépendances (y compris devDependencies pour le build)
-RUN npm ci
+RUN npm install
 
 # Générer le client Prisma
 RUN npx prisma generate
@@ -31,7 +31,7 @@ RUN apk add --no-cache curl
 
 # Copier les dépendances de production uniquement
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copier le client Prisma généré
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
