@@ -48,6 +48,7 @@ COPY --from=builder /app/controllers ./controllers
 COPY --from=builder /app/middleware ./middleware
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/config ./config
+COPY --from=builder /app/utils ./utils
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs && \
@@ -70,4 +71,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:3001/health || exit 1
 
 # Script de démarrage : migrations Prisma + serveur
-CMD ["sh", "-c", "npx prisma migrate deploy && node server/index.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node server/index.js"]
