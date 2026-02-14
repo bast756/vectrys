@@ -1959,3 +1959,243 @@ enum TransportType {
   ATTRACTION
   PARKING
 }
+
+// ============================================================================
+// EMPLOYEE DASHBOARD & CRM
+// ============================================================================
+
+model Employee {
+  id              String    @id @default(uuid())
+  matricule       String    @unique        // "VEC-001", login identifier
+  first_name      String
+  last_name       String
+  email           String    @unique
+  password_hash       String
+  role                String    @default("employee")  // "ceo", "manager", "employee"
+  active              Boolean   @default(true)
+  avatar_url          String?              // Profile photo URL
+  temp_password       Boolean   @default(false) // Must change password on first login
+  work_schedule_start String    @default("08:00") // Authorized connection start
+  work_schedule_end   String    @default("19:00") // Authorized connection end
+  nda_accepted_at     DateTime?           // Non-disclosure agreement acceptance date
+  last_login          DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  call_sessions       CallSession[]
+  prospects           Prospect[]
+  notes               EmployeeNote[]
+  tasks               EmployeeTask[]
+  screenshot_alerts   EmployeeScreenshotAlert[]
+  sessions            EmployeeSession[]
+  otps                EmployeeOtp[]
+
+  @@map("employees")
+}
+
+model Prospect {
+  id                String    @id @default(uuid())
+  employee_id       String
+  employee          Employee  @relation(fields: [employee_id], references: [id])
+
+  company_name      String
+  contact_name      String?
+  contact_role      String?             // "PDG", "DRH", "journalist", etc.
+  phone             String?
+  email             String?
+  status            String    @default("new")  // new, contacted, meeting, proposal, won, lost
+  fate_profile      String?             // F, A, T, E
+  interlocutor_type String?             // journalist, pdg, investor, prospect
+
+  notes             String?   @db.Text
+  last_contact      DateTime?
+  next_action       String?
+  next_action_date  DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  call_sessions     ProspectCall[]
+
+  @@index([employee_id])
+  @@index([status])
+  @@map("prospects")
+}
+
+model ProspectCall {
+  id              String      @id @default(uuid())
+  prospect_id     String
+  prospect        Prospect    @relation(fields: [prospect_id], references: [id], onDelete: Cascade)
+  session_id      String
+  session         CallSession @relation(fields: [session_id], references: [id])
+
+  outcome         String?             // "interested", "follow_up", "rejected", "no_answer"
+  summary         String?   @db.Text  // AI-generated call summary
+  created_at      DateTime  @default(now())
+
+  @@index([prospect_id])
+  @@index([session_id])
+  @@map("prospect_calls")
+}
+
+model EmployeeNote {
+  id              String    @id @default(uuid())
+  employee_id     String
+  employee        Employee  @relation(fields: [employee_id], references: [id])
+
+  title           String
+  content         String    @db.Text
+  category        String    @default("general")  // general, call, prospect, idea
+  pinned          Boolean   @default(false)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  @@index([employee_id])
+  @@map("employee_notes")
+}
+
+model EmployeeTask {
+  id              String    @id @default(uuid())
+  employee_id     String
+  employee        Employee  @relation(fields: [employee_id], references: [id])
+
+  title           String
+  description     String?   @db.Text
+  status          String    @default("todo")  // todo, in_progress, done
+  priority        String    @default("medium") // low, medium, high
+  start_date      DateTime?
+  due_date        DateTime?
+  completed_at    DateTime?
+  created_by      String              // employee_id of creator (CEO can assign)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  @@index([employee_id])
+  @@index([status])
+  @@map("employee_tasks")
+}
+
+// ============================================================================
+// EMPLOYEE SESSIONS (Connection Logs)
+// ============================================================================
+
+model EmployeeSession {
+  id               String    @id @default(uuid())
+  employee_id      String
+  employee         Employee  @relation(fields: [employee_id], references: [id])
+  login_at         DateTime  @default(now())
+  logout_at        DateTime?
+  ip_address       String?
+  user_agent       String?
+  is_active        Boolean   @default(true)
+  outside_schedule Boolean   @default(false)
+  created_at       DateTime  @default(now())
+
+  @@index([employee_id])
+  @@index([login_at])
+  @@index([is_active])
+  @@map("employee_sessions")
+}
+
+// ============================================================================
+// EMPLOYEE OTP (Email-based 2FA)
+// ============================================================================
+
+model EmployeeOtp {
+  id            String    @id @default(uuid())
+  employee_id   String
+  employee      Employee  @relation(fields: [employee_id], references: [id])
+  code          String
+  purpose       String    // "login_2fa", "password_reset", "invitation"
+  expires_at    DateTime
+  used_at       DateTime?
+  attempts      Int       @default(0)
+  created_at    DateTime  @default(now())
+
+  @@index([employee_id, purpose])
+  @@index([code])
+  @@map("employee_otps")
+}
+
+// ============================================================================
+// EMPLOYEE SCREENSHOT ALERTS (Security / Anti-leak)
+// ============================================================================
+
+model EmployeeScreenshotAlert {
+  id              String    @id @default(uuid())
+  employee_id     String
+  employee        Employee  @relation(fields: [employee_id], references: [id])
+
+  screenshot      String    @db.Text  // Base64 image data
+  page_url        String              // Route where screenshot was taken
+  page_title      String              // Readable page name
+  context_summary String    @db.Text  // AI or auto-generated summary of what was on screen
+  detection_method String             // "keydown", "visibility_change", "devtools"
+  severity        String    @default("high") // low, medium, high, critical
+
+  acknowledged    Boolean   @default(false)
+  acknowledged_at DateTime?
+  acknowledged_by String?             // CEO employee_id who acknowledged
+
+  created_at      DateTime  @default(now())
+
+  @@index([employee_id])
+  @@index([created_at])
+  @@index([acknowledged])
+  @@map("employee_screenshot_alerts")
+}
+
+// ============================================================================
+// AI CALL ASSISTANT ("Souffleur Intelligent")
+// ============================================================================
+
+model CallSession {
+  id              String   @id @default(uuid())
+  user_id         String
+  employee_id     String?
+  employee        Employee? @relation(fields: [employee_id], references: [id])
+  title           String?
+  platform        String?  // "meet", "zoom", "teams"
+  status          String   @default("active") // active, ended
+  started_at      DateTime @default(now())
+  ended_at        DateTime?
+
+  transcripts     CallTranscript[]
+  suggestions     CallSuggestion[]
+  prospect_calls  ProspectCall[]
+
+  @@index([user_id])
+  @@index([employee_id])
+  @@map("call_sessions")
+}
+
+model CallTranscript {
+  id              String   @id @default(uuid())
+  session_id      String
+  session         CallSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  speaker         String   @default("unknown") // "me", "guest", "unknown"
+  text            String   @db.Text
+  confidence      Float?
+  timestamp_ms    Int      // offset from session start
+
+  created_at      DateTime @default(now())
+
+  @@index([session_id])
+  @@map("call_transcripts")
+}
+
+model CallSuggestion {
+  id              String   @id @default(uuid())
+  session_id      String
+  session         CallSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  trigger_text    String   @db.Text  // the question that triggered it
+  suggestion      String   @db.Text  // AI-generated answer
+  sources         Json?              // matched KB entries
+  was_used        Boolean  @default(false)
+
+  created_at      DateTime @default(now())
+
+  @@index([session_id])
+  @@map("call_suggestions")
+}

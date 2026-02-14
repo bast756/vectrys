@@ -86,8 +86,9 @@ export default function HomePage() {
             { label: 'Meteo', icon: '☀️', path: '/weather', desc: 'Previsions locales' },
             { label: 'Transport', icon: '🚌', path: '/transport', desc: 'Comment venir' },
             { label: 'Wi-Fi', icon: '📶', path: '/wifi', desc: 'Acces internet' },
-          ].map(({ label, icon, desc }) => (
-            <div key={label} style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer', transition: 'box-shadow 0.2s' }}>
+            { label: 'Souffleur IA', icon: '🎙️', path: '/call-assistant', desc: 'Assistant appels' },
+          ].map(({ label, icon, path, desc }) => (
+            <div key={label} onClick={() => navigate(path)} style={{ background: '#fff', borderRadius: 12, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer', transition: 'box-shadow 0.2s' }}>
               <span style={{ fontSize: 28 }}>{icon}</span>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '8px 0 2px' }}>{label}</p>
               <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>{desc}</p>

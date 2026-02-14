@@ -8,6 +8,7 @@ import { devtools, persist } from 'zustand/middleware';
 import { tokenManager, setOnUnauthorized } from '@/api/client';
 import { authApi, guestApi, servicesApi, chatApi } from '@/api/endpoints';
 import { wsClient } from '@/api/websocket';
+import { employeeApi, employeeTokenManager, setOnEmployeeUnauthorized } from '@/api/employeeApi';
 import type {
   User,
   Reservation,
@@ -640,3 +641,400 @@ export const useUI = () =>
     setOffline: s.setOffline,
     updateAccessibility: s.updateAccessibility,
   }));
+
+// ═══════════════════════════════════════════════════════════════
+// EMPLOYEE DASHBOARD STORE (separate from guest portal)
+// ═══════════════════════════════════════════════════════════════
+
+interface Employee {
+  id: string;
+  matricule: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: string;
+  active?: boolean;
+  avatar_url?: string | null;
+  temp_password?: boolean;
+  nda_accepted_at?: string | null;
+  last_login?: string;
+  work_schedule_start?: string;
+  work_schedule_end?: string;
+}
+
+interface EmployeeSession {
+  id: string;
+  employee_id: string;
+  login_at: string;
+  logout_at?: string | null;
+  ip_address?: string;
+  user_agent?: string;
+  is_active: boolean;
+  outside_schedule: boolean;
+  employee?: Partial<Employee>;
+}
+
+interface OtpPending {
+  employeeId: string;
+  email: string; // masked email
+}
+
+interface Prospect {
+  id: string;
+  employee_id: string;
+  company_name: string;
+  contact_name?: string;
+  contact_role?: string;
+  phone?: string;
+  email?: string;
+  status: string;
+  fate_profile?: string;
+  interlocutor_type?: string;
+  notes?: string;
+  last_contact?: string;
+  next_action?: string;
+  next_action_date?: string;
+  created_at: string;
+  updated_at: string;
+  employee?: Partial<Employee>;
+  _count?: { call_sessions: number };
+}
+
+interface EmployeeNote {
+  id: string;
+  employee_id: string;
+  title: string;
+  content: string;
+  category: string;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface EmployeeTask {
+  id: string;
+  employee_id: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority: string;
+  start_date?: string;
+  due_date?: string;
+  completed_at?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  employee?: Partial<Employee>;
+}
+
+interface ScreenshotAlert {
+  id: string;
+  employee_id: string;
+  screenshot: string;
+  page_url: string;
+  page_title: string;
+  context_summary: string;
+  detection_method: string;
+  severity: string;
+  acknowledged: boolean;
+  acknowledged_at?: string;
+  acknowledged_by?: string;
+  created_at: string;
+  employee?: Partial<Employee>;
+}
+
+interface EmployeeStoreState {
+  employee: Employee | null;
+  isEmployeeAuthenticated: boolean;
+  isEmployeeLoading: boolean;
+  employeeError: string | null;
+  otpPending: OtpPending | null;
+  prospects: Prospect[];
+  notes: EmployeeNote[];
+  tasks: EmployeeTask[];
+  team: Employee[];
+  sessions: EmployeeSession[];
+  screenshotAlerts: ScreenshotAlert[];
+  unreadAlertCount: number;
+}
+
+interface EmployeeStoreActions {
+  employeeLogin: (matricule: string, password: string) => Promise<void>;
+  verifyOtp: (code: string) => Promise<void>;
+  cancelOtp: () => void;
+  employeeLogout: () => void;
+  fetchEmployeeMe: () => Promise<void>;
+  acceptNda: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
+  uploadAvatar: (file: File) => Promise<void>;
+  removeAvatar: () => Promise<void>;
+  registerEmployee: (data: { firstName: string; lastName: string; email: string; role?: string; workScheduleStart?: string; workScheduleEnd?: string }) => Promise<any>;
+  clearEmployeeError: () => void;
+  fetchProspects: (params?: { status?: string; search?: string }) => Promise<void>;
+  createProspect: (data: Record<string, unknown>) => Promise<void>;
+  updateProspect: (id: string, data: Record<string, unknown>) => Promise<void>;
+  deleteProspect: (id: string) => Promise<void>;
+  fetchNotes: (params?: { category?: string; search?: string }) => Promise<void>;
+  createNote: (data: { title: string; content: string; category?: string; pinned?: boolean }) => Promise<void>;
+  updateNote: (id: string, data: Record<string, unknown>) => Promise<void>;
+  deleteNote: (id: string) => Promise<void>;
+  fetchTasks: (params?: { status?: string; priority?: string }) => Promise<void>;
+  createTask: (data: Record<string, unknown>) => Promise<void>;
+  updateTask: (id: string, data: Record<string, unknown>) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
+  fetchTeam: () => Promise<void>;
+  fetchSessions: (params?: { date?: string; employee_id?: string }) => Promise<void>;
+  fetchSessionsToday: () => Promise<void>;
+  fetchScreenshotAlerts: (params?: { acknowledged?: string }) => Promise<void>;
+  fetchUnreadAlertCount: () => Promise<void>;
+  acknowledgeAlert: (id: string) => Promise<void>;
+}
+
+export const useEmployeeStore = create<EmployeeStoreState & EmployeeStoreActions>()(
+  devtools(
+    persist(
+      (set, get) => ({
+        employee: null,
+        isEmployeeAuthenticated: false,
+        isEmployeeLoading: false,
+        employeeError: null,
+        otpPending: null,
+        prospects: [],
+        notes: [],
+        tasks: [],
+        team: [],
+        sessions: [],
+        screenshotAlerts: [],
+        unreadAlertCount: 0,
+
+        // Step 1: credentials → OTP sent to email
+        employeeLogin: async (matricule, password) => {
+          set({ isEmployeeLoading: true, employeeError: null, otpPending: null });
+          try {
+            const res = await employeeApi.login(matricule, password);
+            const data = res.data.data;
+
+            if (data.requiresOtp) {
+              set({
+                otpPending: { employeeId: data.employeeId, email: data.email },
+                isEmployeeLoading: false,
+              });
+            } else {
+              // Fallback for non-2FA (shouldn't happen but safety)
+              const { tokens, employee } = data;
+              employeeTokenManager.setTokens(tokens);
+              set({ employee, isEmployeeAuthenticated: true, isEmployeeLoading: false });
+            }
+          } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || 'Erreur de connexion';
+            set({ employeeError: msg, isEmployeeLoading: false });
+            throw err;
+          }
+        },
+
+        // Step 2: verify OTP → receive tokens
+        verifyOtp: async (code) => {
+          const { otpPending } = get();
+          if (!otpPending) throw new Error('Aucune verification OTP en attente');
+
+          set({ isEmployeeLoading: true, employeeError: null });
+          try {
+            const res = await employeeApi.verifyOtp(otpPending.employeeId, code);
+            const { tokens, employee } = res.data.data;
+            employeeTokenManager.setTokens(tokens);
+            set({ employee, isEmployeeAuthenticated: true, isEmployeeLoading: false, otpPending: null });
+          } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || 'Code OTP invalide';
+            set({ employeeError: msg, isEmployeeLoading: false });
+            throw err;
+          }
+        },
+
+        cancelOtp: () => {
+          set({ otpPending: null, employeeError: null });
+        },
+
+        employeeLogout: () => {
+          // Best-effort logout session tracking
+          employeeApi.logoutSession().catch(() => {});
+          employeeTokenManager.clearTokens();
+          set({
+            employee: null,
+            isEmployeeAuthenticated: false,
+            otpPending: null,
+            prospects: [],
+            notes: [],
+            tasks: [],
+            team: [],
+            sessions: [],
+          });
+        },
+
+        fetchEmployeeMe: async () => {
+          try {
+            const res = await employeeApi.getMe();
+            set({ employee: res.data.data, isEmployeeAuthenticated: true });
+          } catch {
+            set({ isEmployeeAuthenticated: false, employee: null });
+          }
+        },
+
+        acceptNda: async () => {
+          const res = await employeeApi.acceptNda();
+          set({ employee: res.data.data });
+        },
+
+        changePassword: async (currentPassword, newPassword) => {
+          await employeeApi.changePassword(currentPassword, newPassword);
+          const emp = get().employee;
+          if (emp) set({ employee: { ...emp, temp_password: false } });
+        },
+
+        forgotPassword: async (email) => {
+          await employeeApi.forgotPassword(email);
+        },
+
+        resetPassword: async (email, code, newPassword) => {
+          await employeeApi.resetPassword(email, code, newPassword);
+        },
+
+        uploadAvatar: async (file) => {
+          const res = await employeeApi.uploadAvatar(file);
+          const emp = get().employee;
+          if (emp) set({ employee: { ...emp, avatar_url: res.data.data.avatar_url } });
+        },
+
+        removeAvatar: async () => {
+          await employeeApi.removeAvatar();
+          const emp = get().employee;
+          if (emp) set({ employee: { ...emp, avatar_url: null } });
+        },
+
+        registerEmployee: async (data) => {
+          const res = await employeeApi.register(data);
+          return res.data.data;
+        },
+
+        clearEmployeeError: () => set({ employeeError: null }),
+
+        // Prospects
+        fetchProspects: async (params) => {
+          try {
+            const res = await employeeApi.getProspects(params);
+            set({ prospects: res.data.data });
+          } catch { /* silent */ }
+        },
+        createProspect: async (data) => {
+          const res = await employeeApi.createProspect(data);
+          set({ prospects: [res.data.data, ...get().prospects] });
+        },
+        updateProspect: async (id, data) => {
+          const res = await employeeApi.updateProspect(id, data);
+          set({ prospects: get().prospects.map(p => p.id === id ? res.data.data : p) });
+        },
+        deleteProspect: async (id) => {
+          await employeeApi.deleteProspect(id);
+          set({ prospects: get().prospects.filter(p => p.id !== id) });
+        },
+
+        // Notes
+        fetchNotes: async (params) => {
+          try {
+            const res = await employeeApi.getNotes(params);
+            set({ notes: res.data.data });
+          } catch { /* silent */ }
+        },
+        createNote: async (data) => {
+          const res = await employeeApi.createNote(data);
+          set({ notes: [res.data.data, ...get().notes] });
+        },
+        updateNote: async (id, data) => {
+          const res = await employeeApi.updateNote(id, data);
+          set({ notes: get().notes.map(n => n.id === id ? res.data.data : n) });
+        },
+        deleteNote: async (id) => {
+          await employeeApi.deleteNote(id);
+          set({ notes: get().notes.filter(n => n.id !== id) });
+        },
+
+        // Tasks
+        fetchTasks: async (params) => {
+          try {
+            const res = await employeeApi.getTasks(params);
+            set({ tasks: res.data.data });
+          } catch { /* silent */ }
+        },
+        createTask: async (data) => {
+          const res = await employeeApi.createTask(data);
+          set({ tasks: [res.data.data, ...get().tasks] });
+        },
+        updateTask: async (id, data) => {
+          const res = await employeeApi.updateTask(id, data);
+          set({ tasks: get().tasks.map(t => t.id === id ? res.data.data : t) });
+        },
+        deleteTask: async (id) => {
+          await employeeApi.deleteTask(id);
+          set({ tasks: get().tasks.filter(t => t.id !== id) });
+        },
+
+        // Team
+        fetchTeam: async () => {
+          try {
+            const res = await employeeApi.getTeam();
+            set({ team: res.data.data });
+          } catch { /* silent */ }
+        },
+
+        // Sessions (CEO)
+        fetchSessions: async (params) => {
+          try {
+            const res = await employeeApi.getSessions(params);
+            set({ sessions: res.data.data });
+          } catch { /* silent */ }
+        },
+        fetchSessionsToday: async () => {
+          try {
+            const res = await employeeApi.getSessionsToday();
+            set({ sessions: res.data.data.sessions });
+          } catch { /* silent */ }
+        },
+
+        // Screenshot Alerts (CEO)
+        fetchScreenshotAlerts: async (params) => {
+          try {
+            const res = await employeeApi.getScreenshotAlerts(params);
+            set({ screenshotAlerts: res.data.data });
+          } catch { /* silent */ }
+        },
+        fetchUnreadAlertCount: async () => {
+          try {
+            const res = await employeeApi.getScreenshotAlertCount();
+            set({ unreadAlertCount: res.data.data.count });
+          } catch { /* silent */ }
+        },
+        acknowledgeAlert: async (id) => {
+          const res = await employeeApi.acknowledgeScreenshotAlert(id);
+          set({
+            screenshotAlerts: get().screenshotAlerts.map(a => a.id === id ? res.data.data : a),
+            unreadAlertCount: Math.max(0, get().unreadAlertCount - 1),
+          });
+        },
+      }),
+      {
+        name: 'vectrys-employee-store',
+        partialize: (state) => ({
+          employee: state.employee,
+          isEmployeeAuthenticated: state.isEmployeeAuthenticated,
+        }),
+      }
+    ),
+    { name: 'EmployeeStore' }
+  )
+);
+
+// Auto-logout on 401
+setOnEmployeeUnauthorized(() => {
+  useEmployeeStore.getState().employeeLogout();
+});
