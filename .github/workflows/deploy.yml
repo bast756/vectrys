@@ -32,10 +32,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: apps/server/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install backend dependencies
-        working-directory: apps/server
+      - name: Install all dependencies (workspaces)
         run: npm ci
 
       - name: Generate Prisma client
@@ -48,9 +47,7 @@ jobs:
 
       - name: Build frontend
         working-directory: apps/client
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
