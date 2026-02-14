@@ -857,8 +857,10 @@ export const useEmployeeStore = create<EmployeeStoreState & EmployeeStoreActions
         },
 
         employeeLogout: () => {
-          // Best-effort logout session tracking
-          employeeApi.logoutSession().catch(() => {});
+          // Best-effort logout session tracking (only if we have a token)
+          if (employeeTokenManager.getAccessToken()) {
+            employeeApi.logoutSession().catch(() => {});
+          }
           employeeTokenManager.clearTokens();
           set({
             employee: null,

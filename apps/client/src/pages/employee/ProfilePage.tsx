@@ -14,7 +14,7 @@ const DL = {
   gradient: { gold: 'linear-gradient(135deg, #d4a853 0%, #fcd34d 50%, #b8860b 100%)' },
 };
 
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
 
 export default function ProfilePage() {
   const { employee, uploadAvatar, removeAvatar, changePassword } = useEmployeeStore();

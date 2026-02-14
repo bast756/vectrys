@@ -7,7 +7,7 @@ import { io, Socket } from 'socket.io-client';
 import { tokenManager } from './client';
 import type { ChatMessage, WsTypingEvent, WsPresenceEvent } from '@/types';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
+const WS_URL = import.meta.env.VITE_WS_URL || '';
 
 // ─── WEBSOCKET CLIENT CLASS ──────────────────────────────────
 
