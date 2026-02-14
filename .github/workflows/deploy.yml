@@ -79,6 +79,13 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ env.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Fix VPS directory permissions
+        run: |
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'FIXPERMS'
+            sudo mkdir -p /opt/vectrys/backend /opt/vectrys/frontend/dist /opt/vectrys/nginx
+            sudo chown -R deploy:deploy /opt/vectrys/
+          FIXPERMS
+
       - name: Sync backend code to VPS
         run: |
           rsync -avz --delete --no-group --no-owner --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r \
