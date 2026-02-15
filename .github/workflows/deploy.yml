@@ -15,7 +15,7 @@ on:
 env:
   VPS_HOST: ${{ secrets.VPS_HOST }}
   VPS_USER: deploy
-  DEPLOY_PATH: /opt/vectrys
+  DEPLOY_PATH: ~/vectrys
 
 jobs:
   # ============================================
@@ -86,39 +86,41 @@ jobs:
 
       - name: Prepare deploy directories on VPS
         run: |
-          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} 'mkdir -p /opt/vectrys/backend /opt/vectrys/frontend/dist /opt/vectrys/nginx/conf.d'
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} 'mkdir -p ~/vectrys/backend ~/vectrys/frontend/dist ~/vectrys/nginx/conf.d'
 
       - name: Sync backend code to VPS
         run: |
-          rsync -rltz --delete --no-group --no-owner --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
+          rsync -rltz --delete --no-group --no-owner \
             --exclude='node_modules' \
             --exclude='.git' \
             --exclude='.env' \
-            apps/server/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/backend/
+            apps/server/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:~/vectrys/backend/
 
       - name: Sync frontend build to VPS
         run: |
-          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} 'rm -rf /opt/vectrys/frontend/dist/*'
-          rsync -rltz --no-group --no-owner --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
-            frontend-dist/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/frontend/dist/
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} 'rm -rf ~/vectrys/frontend/dist/* 2>/dev/null; true'
+          rsync -rltz --no-group --no-owner \
+            frontend-dist/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:~/vectrys/frontend/dist/
 
       - name: Sync Docker & Nginx configs
         run: |
           rsync -rltz --no-group --no-owner \
             docker-compose.yml \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:~/vectrys/
           rsync -rltz --no-group --no-owner \
             nginx/ \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/nginx/
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:~/vectrys/nginx/
 
       - name: Deploy on VPS
         run: |
           ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'DEPLOY_SCRIPT'
             set -e
-            cd /opt/vectrys
+            cd ~/vectrys
 
-            echo "🔄 Pulling latest images..."
-            docker compose pull postgres redis n8n nginx certbot
+            # Symlink so docker-compose finds files at /opt/vectrys too
+            if [ ! -L /opt/vectrys ] 2>/dev/null; then
+              ln -sf ~/vectrys /opt/vectrys 2>/dev/null || true
+            fi
 
             echo "🔨 Building backend..."
             docker compose build --no-cache backend
