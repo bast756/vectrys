@@ -84,9 +84,16 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ env.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Prepare deploy directories on VPS
+        run: |
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'PREP'
+            sudo mkdir -p /opt/vectrys/backend /opt/vectrys/frontend/dist /opt/vectrys/nginx
+            sudo chown -R deploy:deploy /opt/vectrys
+          PREP
+
       - name: Sync backend code to VPS
         run: |
-          rsync -avz --delete \
+          rsync -rltz --delete --no-group --no-owner \
             --exclude='node_modules' \
             --exclude='.git' \
             --exclude='.env' \
@@ -94,15 +101,15 @@ jobs:
 
       - name: Sync frontend build to VPS
         run: |
-          rsync -avz --delete \
+          rsync -rltz --delete --no-group --no-owner \
             frontend-dist/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/frontend/dist/
 
       - name: Sync Docker & Nginx configs
         run: |
-          rsync -avz \
+          rsync -rltz --no-group --no-owner \
             docker-compose.yml \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/
-          rsync -avz \
+          rsync -rltz --no-group --no-owner \
             nginx/ \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/nginx/
 
