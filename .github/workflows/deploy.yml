@@ -86,14 +86,11 @@ jobs:
 
       - name: Prepare deploy directories on VPS
         run: |
-          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'PREP'
-            sudo mkdir -p /opt/vectrys/backend /opt/vectrys/frontend/dist /opt/vectrys/nginx
-            sudo chown -R deploy:deploy /opt/vectrys
-          PREP
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} 'mkdir -p /opt/vectrys/backend /opt/vectrys/frontend/dist /opt/vectrys/nginx/conf.d'
 
       - name: Sync backend code to VPS
         run: |
-          rsync -rltz --delete --no-group --no-owner \
+          rsync -rltz --delete --no-group --no-owner --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
             --exclude='node_modules' \
             --exclude='.git' \
             --exclude='.env' \
@@ -101,7 +98,8 @@ jobs:
 
       - name: Sync frontend build to VPS
         run: |
-          rsync -rltz --delete --no-group --no-owner \
+          ssh ${{ env.VPS_USER }}@${{ env.VPS_HOST }} 'rm -rf /opt/vectrys/frontend/dist/*'
+          rsync -rltz --no-group --no-owner --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
             frontend-dist/ ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.DEPLOY_PATH }}/frontend/dist/
 
       - name: Sync Docker & Nginx configs
