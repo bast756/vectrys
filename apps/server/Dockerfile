@@ -46,6 +46,8 @@ COPY --from=builder /app/controllers ./controllers
 COPY --from=builder /app/middleware ./middleware
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/config ./config
+COPY --from=builder /app/data-engine ./data-engine
+COPY --from=builder /app/utils ./utils
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs && \
