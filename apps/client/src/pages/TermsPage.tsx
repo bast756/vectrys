@@ -1,6 +1,22 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '@/store';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const fadeUp = {
+  initial: { opacity: 0, y: 24, filter: 'blur(6px)' },
+  animate: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { type: 'spring' as const, stiffness: 220, damping: 24 } },
+};
+
+const container = {
+  initial: {},
+  animate: { transition: { staggerChildren: 0.08, delayChildren: 0.15 } },
+};
 
 export default function TermsPage() {
   const navigate = useNavigate();
@@ -8,7 +24,6 @@ export default function TermsPage() {
   const [cgu, setCgu] = useState(false);
   const [cgv, setCgv] = useState(false);
   const [rgpd, setRgpd] = useState(false);
-
   const allAccepted = cgu && cgv && rgpd;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -16,57 +31,76 @@ export default function TermsPage() {
     if (!allAccepted) return;
     try {
       await acceptTerms(cgu, cgv, rgpd);
+      toast.success('Conditions acceptees');
       navigate('/');
-    } catch {}
+    } catch {
+      toast.error('Erreur lors de la validation');
+    }
   };
 
-  const checkboxStyle = { width: 18, height: 18, cursor: 'pointer', accentColor: '#0f172a' };
+  const terms = [
+    { checked: cgu, set: setCgu, title: "Conditions Generales d'Utilisation (CGU)", desc: "J'accepte les conditions generales d'utilisation de la plateforme VECTRYS." },
+    { checked: cgv, set: setCgv, title: "Conditions Generales de Vente (CGV)", desc: "J'accepte les conditions de vente applicables aux services proposes." },
+    { checked: rgpd, set: setRgpd, title: "Protection des donnees (RGPD)", desc: "J'accepte le traitement de mes donnees personnelles conformement a la politique de confidentialite." },
+  ];
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <div style={{ width: '100%', maxWidth: 480, padding: 32, background: '#fff', borderRadius: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 8, color: '#0f172a' }}>Conditions d'utilisation</h1>
-        <p style={{ textAlign: 'center', color: '#64748b', marginBottom: 32, fontSize: 14 }}>
-          Veuillez accepter les conditions pour continuer
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-void p-5 relative overflow-hidden">
+      <div className="pointer-events-none absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-gold/[0.03] blur-[120px]" />
 
-        {error && (
-          <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: 13, marginBottom: 16 }}>
-            {error}
-          </div>
-        )}
+      <motion.div variants={container} initial="initial" animate="animate" className="w-full max-w-[480px]">
+        <Card className="gradient-border overflow-visible">
+          <div className="absolute top-0 left-0 right-0 h-[2px] gold-gradient rounded-t-2xl" />
+          <CardContent className="p-8">
+            <motion.div variants={fadeUp} className="text-center mb-8">
+              <img src="/brand/logo-stacked-white.png" alt="VECTRYS" className="h-16 mx-auto mb-3 object-contain" />
+              <p className="text-xl font-light text-slate-100 font-display">Conditions d'utilisation</p>
+              <p className="text-slate-500 text-xs mt-1.5">Veuillez accepter les conditions pour continuer</p>
+            </motion.div>
 
-        <form onSubmit={handleSubmit}>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 0', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cgu} onChange={(e) => setCgu(e.target.checked)} style={checkboxStyle} />
-            <div>
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#0f172a' }}>Conditions Generales d'Utilisation (CGU)</span>
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>J'accepte les conditions generales d'utilisation de la plateforme VECTRYS.</p>
-            </div>
-          </label>
+            {error && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+                className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</motion.div>
+            )}
 
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 0', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
-            <input type="checkbox" checked={cgv} onChange={(e) => setCgv(e.target.checked)} style={checkboxStyle} />
-            <div>
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#0f172a' }}>Conditions Generales de Vente (CGV)</span>
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>J'accepte les conditions de vente applicables aux services proposes.</p>
-            </div>
-          </label>
+            <form onSubmit={handleSubmit}>
+              {terms.map(({ checked, set, title, desc }, i) => (
+                <motion.label
+                  key={i}
+                  variants={fadeUp}
+                  whileTap={{ scale: 0.99 }}
+                  className={cn(
+                    "flex items-start gap-3.5 py-4 cursor-pointer transition-colors group",
+                    i < 2 && 'border-b border-glass-border'
+                  )}
+                >
+                  <motion.div
+                    animate={checked ? { scale: [1, 1.2, 1] } : {}}
+                    transition={{ duration: 0.25 }}
+                    className={cn(
+                      "w-[22px] h-[22px] rounded-lg shrink-0 mt-0.5 flex items-center justify-center border-2 transition-all duration-200",
+                      checked ? "bg-gold border-gold" : "border-glass-border group-hover:border-gold/40"
+                    )}
+                  >
+                    {checked && <Check className="w-3 h-3 text-void" strokeWidth={3} />}
+                  </motion.div>
+                  <input type="checkbox" checked={checked} onChange={(e) => set(e.target.checked)} className="sr-only" />
+                  <div>
+                    <span className="text-[13px] font-medium text-slate-200">{title}</span>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{desc}</p>
+                  </div>
+                </motion.label>
+              ))}
 
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 0', cursor: 'pointer' }}>
-            <input type="checkbox" checked={rgpd} onChange={(e) => setRgpd(e.target.checked)} style={checkboxStyle} />
-            <div>
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#0f172a' }}>Protection des donnees (RGPD)</span>
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>J'accepte le traitement de mes donnees personnelles conformement a la politique de confidentialite.</p>
-            </div>
-          </label>
-
-          <button type="submit" disabled={!allAccepted || isLoading}
-            style={{ width: '100%', padding: '12px', marginTop: 24, background: allAccepted ? '#0f172a' : '#94a3b8', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: allAccepted && !isLoading ? 'pointer' : 'not-allowed' }}>
-            {isLoading ? 'Validation...' : 'Accepter et continuer'}
-          </button>
-        </form>
-      </div>
+              <motion.div variants={fadeUp}>
+                <Button type="submit" disabled={!allAccepted || isLoading} className="w-full mt-6 h-11">
+                  {isLoading ? 'Validation...' : 'Accepter et continuer'}
+                </Button>
+              </motion.div>
+            </form>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 }

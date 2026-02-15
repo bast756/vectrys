@@ -25,6 +25,8 @@ import type {
   ProfileUpdate,
   ApiResponse,
   PaginatedResponse,
+  Plan,
+  SubscriptionData,
 } from '@/types';
 
 // ─── AUTH API (PRIORITÉ 🔴 BLOQUANT) ────────────────────────
@@ -70,7 +72,7 @@ export const authApi = {
    * Accepter les CGU/CGV/RGPD
    */
   acceptTerms: (terms: TermsAcceptance) =>
-    api.post<ApiResponse<{ success: boolean }>>('/auth/terms/accept', terms),
+    api.post<ApiResponse<{ success: boolean }>>('/auth/legal-accept', terms),
 
   /**
    * Récupérer les infos du user connecté
@@ -133,7 +135,7 @@ export const guestApi = {
   updateChecklist: (reservationId: string, checklist: CheckoutTask[]) =>
     api.put<ApiResponse<{ success: boolean }>>(
       `/guest-portal/reservation/${reservationId}/checklist`,
-      { checklist }
+      { items: checklist.map(t => ({ id: t.id, completed: t.completed })) }
     ),
 
   /**
@@ -144,7 +146,7 @@ export const guestApi = {
       ApiResponse<{
         ssid: string;
         password: string;
-        qr_code_url?: string;
+        qr_code?: string | null;
       }>
     >(`/guest-portal/property/${propertyId}/wifi`),
 
@@ -154,12 +156,10 @@ export const guestApi = {
   getInstructions: (propertyId: string) =>
     api.get<
       ApiResponse<{
-        check_in_instructions: string;
-        check_out_instructions: string;
-        house_rules: string;
-        parking_info?: string;
+        checkout_time?: string;
+        instructions?: string[];
         garbage_info?: string;
-        emergency_phone?: string;
+        checklist?: Array<{ id: string; label: string; label_en?: string; order: number; required: boolean }>;
       }>
     >(`/guest-portal/property/${propertyId}/instructions`),
 };
@@ -174,10 +174,19 @@ export const servicesApi = {
     api.get<ApiResponse<Service[]>>(`/guest-portal/services`, { params: { property_id: propertyId } }),
 
   /**
-   * Passer une commande
+   * Passer une commande (retourne order + clientSecret Stripe)
    */
   placeOrder: (items: Array<{ service_id: string; quantity: number }>) =>
-    api.post<ApiResponse<Order>>('/guest-portal/orders', { items }),
+    api.post<ApiResponse<Order & { clientSecret?: string }>>('/guest-portal/orders', { items }),
+
+  /**
+   * Confirmer le paiement d'une commande
+   */
+  confirmPayment: (orderId: string, paymentIntentId: string) =>
+    api.post<ApiResponse<{ id: string; status: string; paid_at: string }>>(
+      `/guest-portal/orders/${orderId}/confirm-payment`,
+      { paymentIntentId }
+    ),
 
   /**
    * Récupérer mes commandes
@@ -209,6 +218,14 @@ export const chatApi = {
     api.post<ApiResponse<ChatMessage>>('/guest-portal/chat/messages', {
       text,
       reservation_id: reservationId,
+    }),
+
+  /**
+   * Récupérer le statut de l'hôte (nom + temps de réponse moyen)
+   */
+  getHostStatus: (reservationId?: string) =>
+    api.get<ApiResponse<{ hostName: string; avgResponseMinutes: number | null; online: boolean }>>('/guest-portal/chat/host-status', {
+      params: { reservation_id: reservationId },
     }),
 
   /**
@@ -334,4 +351,79 @@ export const propertyApi = {
         practical_info: Record<string, string>;
       }>
     >(`/guest-portal/property/${propertyId}/guide`),
+};
+
+// ─── AI CHAT API ─────────────────────────────────────────────
+
+export const aiChatApi = {
+  sendMessage: (message: string, reservationId?: string, language?: string, conversationHistory?: Array<{ role: string; content: string }>) =>
+    api.post<ApiResponse<{ message: string; suggestions: string[]; articlesUsed: Array<{ id: string; title: string }>; conversationId: string }>>('/guest-portal/ai/chat', {
+      message, reservationId, language, conversationHistory,
+    }),
+
+  getHistory: (reservationId?: string, limit?: number) =>
+    api.get<ApiResponse<Array<{ id: string; senderType: string; content: string; createdAt: string }>>>('/guest-portal/ai/chat/history', {
+      params: { ...(reservationId && { reservationId }), ...(limit && { limit }) },
+    }),
+};
+
+// ─── TRAVEL JOURNAL API ──────────────────────────────────────
+
+export const journalApi = {
+  getEntries: (type?: string, reservationId?: string) =>
+    api.get<ApiResponse<any[]>>('/guest-portal/travel-journal', {
+      params: { ...(type && { type }), ...(reservationId && { reservationId }) },
+    }),
+
+  createEntry: (data: { type?: string; title?: string; content: string; emoji?: string; mood?: string; photos?: string[]; reservationId?: string; tags?: string[] }) =>
+    api.post<ApiResponse<any>>('/guest-portal/travel-journal', data),
+
+  updateEntry: (id: string, data: Record<string, any>) =>
+    api.patch<ApiResponse<any>>(`/guest-portal/travel-journal/${id}`, data),
+
+  deleteEntry: (id: string) =>
+    api.delete<ApiResponse<any>>(`/guest-portal/travel-journal/${id}`),
+
+  getTrips: () =>
+    api.get<ApiResponse<any[]>>('/guest-portal/travel-journal/trips'),
+};
+
+// ─── FCM / PUSH NOTIFICATIONS API ────────────────────────────
+
+export const fcmApi = {
+  /**
+   * Enregistrer un token FCM pour les push notifications
+   */
+  registerToken: (token: string) =>
+    api.post<ApiResponse<{ success: boolean }>>('/guest-portal/fcm-token', { token }),
+};
+
+// ─── SUBSCRIPTION API ────────────────────────────────────────
+
+export const subscriptionApi = {
+  getPlans: () =>
+    api.get<ApiResponse<Plan[]>>('/subscription/plans'),
+
+  getStatus: (organizationId?: string) =>
+    api.get<ApiResponse<SubscriptionData>>('/subscription/status', {
+      params: organizationId ? { organization_id: organizationId } : {},
+    }),
+
+  createCheckout: (plan: string, interval: string, organizationId?: string) =>
+    api.post<ApiResponse<{ url: string; sessionId: string }>>('/subscription/checkout', {
+      plan,
+      interval,
+      organization_id: organizationId,
+    }),
+
+  createPortal: (organizationId?: string) =>
+    api.post<ApiResponse<{ url: string }>>('/subscription/portal', {
+      organization_id: organizationId,
+    }),
+
+  startTrial: (plan?: string, organizationId?: string) =>
+    api.post<ApiResponse<any>>('/subscription/trial', {
+      plan: plan || 'pro',
+      organization_id: organizationId,
+    }),
 };

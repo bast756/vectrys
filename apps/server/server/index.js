@@ -43,6 +43,11 @@ import employeeAuthRoutes from '../routes/employee-auth.routes.js';
 import crmRoutes from '../routes/crm.routes.js';
 import employeeDashboardRoutes from '../routes/employee-dashboard.routes.js';
 import screenshotAlertRoutes from '../routes/screenshot-alerts.routes.js';
+import subscriptionRoutes from '../routes/subscription.routes.js';
+import guestPortalRoutes from '../routes/guest-portal.routes.js';
+import guestAiChatRoutes from '../routes/guest-ai-chat.routes.js';
+import stripeService from '../services/stripe.service.js';
+import sendgridService from '../services/sendgrid.service.js';
 import { requireEmployee } from '../middleware/employee-auth.js';
 import employeeAuthService from '../services/employee-auth.service.js';
 import cron from 'node-cron';
@@ -52,9 +57,9 @@ import deepgramService from '../services/deepgram.service.js';
 import callAssistantService from '../services/call-assistant.service.js';
 
 // Data Engine v3.0 — Routes INTERNES UNIQUEMENT
-import dataEngineRoutes from '../src/modules/data-engine/data-engine.routes.js';
-import { internalOnly } from '../src/modules/data-engine/guards/internal-only.guard.js';
-import { ipWhitelist } from '../src/modules/data-engine/guards/ip-whitelist.guard.js';
+import dataEngineRoutes from '../data-engine/data-engine.routes.js';
+import { internalOnly } from '../data-engine/internal-only.guard.js';
+import { ipWhitelist } from '../data-engine/ip-whitelist.guard.js';
 
 // Configuration
 dotenv.config();
@@ -83,6 +88,9 @@ app.use(helmet({
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
   'http://localhost:4173',
 ].filter(Boolean);
 
@@ -108,6 +116,19 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
 });
 app.use('/api/', limiter);
+
+// ─── STRIPE WEBHOOK (raw body required — DOIT être AVANT express.json) ────
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const signature = req.headers['stripe-signature'];
+    if (!signature) return res.status(400).json({ error: 'Missing stripe-signature' });
+    const result = await stripeService.handleWebhook(req.body, signature);
+    res.json(result);
+  } catch (err) {
+    console.error('[Stripe Webhook] Error:', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // Body parsing (50mb for screenshot alerts with base64 images)
 app.use(express.json({ limit: '50mb' }));
@@ -234,6 +255,13 @@ app.use('/api/employee/auth', employeeAuthRoutes);
 app.use('/api/employee', requireEmployee, crmRoutes);
 app.use('/api/employee', requireEmployee, employeeDashboardRoutes);
 app.use('/api/employee', requireEmployee, screenshotAlertRoutes);
+
+// ─── Subscription & Billing ─────────────────────────────────
+app.use('/api/subscription', subscriptionRoutes);
+
+// ─── Guest Portal ───────────────────────────────────────────
+app.use('/api/guest-portal', guestPortalRoutes);
+app.use('/api/guest-portal', guestAiChatRoutes);
 
 // Data Engine v3.0 — Routes INTERNES (RBAC protégé)
 app.use(
@@ -489,6 +517,213 @@ callAssistantNsp.on('connection', (socket) => {
 });
 
 // ============================================================================
+// GUEST PORTAL WEBSOCKET NAMESPACE
+// ============================================================================
+
+import jwt from 'jsonwebtoken';
+
+/**
+ * Calcule le temps de réponse moyen de l'hôte (en minutes) pour une réservation.
+ * Analyse les paires GUEST → HOST dans GuestMessage pour trouver le délai moyen.
+ */
+async function calculateAvgResponseTime(reservationId) {
+  try {
+    const messages = await prisma.guestMessage.findMany({
+      where: { reservationId },
+      orderBy: { createdAt: 'asc' },
+      select: { senderType: true, createdAt: true },
+    });
+
+    if (messages.length < 2) return null;
+
+    const responseTimes = [];
+    let lastGuestMsgTime = null;
+
+    for (const msg of messages) {
+      if (msg.senderType === 'GUEST') {
+        lastGuestMsgTime = msg.createdAt;
+      } else if (msg.senderType === 'HOST' && lastGuestMsgTime) {
+        const diffMs = msg.createdAt.getTime() - lastGuestMsgTime.getTime();
+        const diffMin = Math.round(diffMs / 60000);
+        if (diffMin > 0 && diffMin < 1440) { // Ignore > 24h (outliers)
+          responseTimes.push(diffMin);
+        }
+        lastGuestMsgTime = null;
+      }
+    }
+
+    if (responseTimes.length === 0) return null;
+    return Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length);
+  } catch (err) {
+    console.warn('[Guest Portal] calculateAvgResponseTime error:', err.message);
+    return null;
+  }
+}
+
+const guestPortalNsp = io.of('/guest-portal');
+
+// Presence tracking
+const guestPresence = new Map(); // reservationId -> Set<socketId>
+
+// ─── Auth Middleware ───
+guestPortalNsp.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('Authentication required'));
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const guest = await prisma.guest.findUnique({ where: { id: decoded.sub || decoded.id } });
+    if (!guest) return next(new Error('Guest not found'));
+
+    socket.guest = guest;
+    next();
+  } catch (err) {
+    next(new Error('Invalid token'));
+  }
+});
+
+guestPortalNsp.on('connection', (socket) => {
+  console.log(`[Guest Portal WS] Connected: ${socket.id} (guest: ${socket.guest?.firstName || 'unknown'})`);
+
+  // ─── JOIN RESERVATION ROOM ───
+  socket.on('join:reservation', (reservationId) => {
+    socket.join(`reservation:${reservationId}`);
+    socket.reservationId = reservationId;
+
+    // Track presence
+    if (!guestPresence.has(reservationId)) {
+      guestPresence.set(reservationId, new Set());
+    }
+    guestPresence.get(reservationId).add(socket.id);
+
+    // Broadcast presence
+    guestPortalNsp.to(`reservation:${reservationId}`).emit('presence', {
+      user: 'guest',
+      online: true,
+      reservation_id: reservationId,
+    });
+
+    console.log(`[Guest Portal WS] Guest joined reservation: ${reservationId}`);
+  });
+
+  // ─── MESSAGE ───
+  socket.on('message', async (data) => {
+    const { reservation_id, text } = data;
+    if (!text || !reservation_id) return;
+
+    try {
+      // Save to database
+      const message = await prisma.guestMessage.create({
+        data: {
+          reservationId: reservation_id,
+          senderId: socket.guest.id,
+          senderType: 'GUEST',
+          content: text,
+        },
+      });
+
+      const msgPayload = {
+        id: message.id,
+        text: message.content,
+        from: 'guest',
+        timestamp: message.createdAt.toISOString(),
+        read: false,
+      };
+
+      // Broadcast to room EXCEPT the sender (avoids duplicate on sender side)
+      socket.to(`reservation:${reservation_id}`).emit('message', msgPayload);
+
+      // Confirm to the sender with the real DB id (replaces optimistic temp message)
+      socket.emit('message:confirmed', msgPayload);
+
+      // Email notification to property owner (guest → host)
+      try {
+        const resInfo = await prisma.reservation.findUnique({
+          where: { id: reservation_id },
+          include: { guest: true, property: { include: { owner: true } } },
+        });
+        if (resInfo?.property?.owner?.email) {
+          const dashboardUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/employee/dashboard`;
+          await sendgridService.sendHostMessageNotification(resInfo.property.owner.email, {
+            hostName: resInfo.property.owner.firstName || 'cher proprietaire',
+            guestName: `${resInfo.guest?.firstName || ''} ${resInfo.guest?.lastName || ''}`.trim() || 'Un voyageur',
+            messagePreview: text.length > 100 ? text.substring(0, 100) + '...' : text,
+            propertyName: resInfo.property.name || 'votre logement',
+            dashboardUrl,
+          });
+        }
+      } catch (emailErr) {
+        console.warn('[Guest Portal] Host email notification failed:', emailErr.message);
+      }
+
+      // Auto-translate if needed (check guest/host languages)
+      try {
+        const reservation = await prisma.reservation.findUnique({
+          where: { id: reservation_id },
+          include: { property: { select: { organizationId: true } } },
+        });
+        // Translation would be triggered here if languages differ
+        // For now, store original and let frontend handle toggle
+      } catch {}
+
+      // Send host availability status (name + avg response time) — NOT a fake reply
+      setTimeout(async () => {
+        try {
+          const resInfo = await prisma.reservation.findUnique({
+            where: { id: reservation_id },
+            include: { property: { include: { owner: true } } },
+          });
+          const ownerName = resInfo?.property?.owner?.firstName || 'L\'hôte';
+
+          // Calculate average response time from real HOST replies
+          const avgResponseTime = await calculateAvgResponseTime(reservation_id);
+
+          // Emit a system status message (not a fake host message)
+          guestPortalNsp.to(`reservation:${reservation_id}`).emit('host:status', {
+            hostName: ownerName,
+            avgResponseMinutes: avgResponseTime,
+            online: false, // TODO: track real online status
+            timestamp: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.warn('[Guest Portal] Host status emit failed:', err.message);
+        }
+      }, 500);
+    } catch (err) {
+      console.error('[Guest Portal WS] Message error:', err);
+      socket.emit('error', { message: 'Failed to send message' });
+    }
+  });
+
+  // ─── TYPING ───
+  socket.on('typing', (data) => {
+    const { reservation_id, isTyping } = data;
+    if (!reservation_id) return;
+    socket.to(`reservation:${reservation_id}`).emit('typing', {
+      from: 'guest',
+      isTyping,
+    });
+  });
+
+  // ─── DISCONNECT ───
+  socket.on('disconnect', () => {
+    const reservationId = socket.reservationId;
+    if (reservationId && guestPresence.has(reservationId)) {
+      guestPresence.get(reservationId).delete(socket.id);
+      if (guestPresence.get(reservationId).size === 0) {
+        guestPresence.delete(reservationId);
+        guestPortalNsp.to(`reservation:${reservationId}`).emit('presence', {
+          user: 'guest',
+          online: false,
+          reservation_id: reservationId,
+        });
+      }
+    }
+    console.log(`[Guest Portal WS] Disconnected: ${socket.id}`);
+  });
+});
+
+// ============================================================================
 // CRON MONITORING SMS + FATE
 // ============================================================================
 
@@ -519,40 +754,6 @@ cron.schedule('*/30 * * * *', async () => {
     }
   } catch (err) {
     console.error('[CRON] Schedule monitoring error:', err.message);
-  }
-});
-
-// Verrouillage comptes inactifs 30 jours — verification quotidienne a 3h du matin
-cron.schedule('0 3 * * *', async () => {
-  try {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-    // Find active employees with last_activity > 30 days ago (or never active)
-    const inactiveEmployees = await prisma.employee.findMany({
-      where: {
-        active: true,
-        locked_at: null,
-        OR: [
-          { last_activity: { lt: thirtyDaysAgo } },
-          { last_activity: null, created_at: { lt: thirtyDaysAgo } },
-        ],
-      },
-      select: { id: true, matricule: true, last_activity: true },
-    });
-
-    if (inactiveEmployees.length > 0) {
-      await prisma.employee.updateMany({
-        where: { id: { in: inactiveEmployees.map(e => e.id) } },
-        data: { locked_at: new Date() },
-      });
-
-      for (const emp of inactiveEmployees) {
-        console.log(`[CRON] Account locked for inactivity: ${emp.matricule} (last activity: ${emp.last_activity || 'never'})`);
-      }
-      console.log(`[CRON] ${inactiveEmployees.length} account(s) locked for 30-day inactivity`);
-    }
-  } catch (err) {
-    console.error('[CRON] Inactivity lock error:', err.message);
   }
 });
 

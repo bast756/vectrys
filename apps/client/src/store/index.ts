@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { tokenManager, setOnUnauthorized } from '@/api/client';
-import { authApi, guestApi, servicesApi, chatApi } from '@/api/endpoints';
+import { authApi, guestApi, servicesApi, chatApi, subscriptionApi } from '@/api/endpoints';
 import { wsClient } from '@/api/websocket';
 import { employeeApi, employeeTokenManager, setOnEmployeeUnauthorized } from '@/api/employeeApi';
 import type {
@@ -18,6 +18,8 @@ import type {
   OrderItem,
   ChatMessage,
   CheckoutTask,
+  Plan,
+  SubscriptionData,
 } from '@/types';
 
 // ─── AUTH SLICE ──────────────────────────────────────────────
@@ -59,6 +61,7 @@ interface BookingActions {
   checkout: () => Promise<void>;
   toggleChecklistTask: (taskId: string) => void;
   updateChecklist: () => Promise<void>;
+  setCheckoutChecklist: (items: import('@/types').CheckoutTask[]) => void;
 }
 
 // ─── SERVICES SLICE ──────────────────────────────────────────
@@ -68,6 +71,10 @@ interface ServicesState {
   cart: Array<{ service: Service; quantity: number }>;
   orders: Order[];
   isLoadingServices: boolean;
+  paymentClientSecret: string | null;
+  pendingOrderId: string | null;
+  unreadMessageCount: number;
+  pendingOrderCount: number;
 }
 
 interface ServicesActions {
@@ -76,16 +83,27 @@ interface ServicesActions {
   removeFromCart: (serviceId: string) => void;
   updateCartQuantity: (serviceId: string, quantity: number) => void;
   clearCart: () => void;
-  placeOrder: () => Promise<Order | null>;
+  placeOrder: () => Promise<{ order: Order; clientSecret?: string } | null>;
+  confirmPayment: (orderId: string, paymentIntentId: string) => Promise<void>;
+  clearPayment: () => void;
   fetchOrders: () => Promise<void>;
+  cancelOrder: (orderId: string) => Promise<void>;
+  fetchUnreadCounts: () => void;
 }
 
 // ─── CHAT SLICE ──────────────────────────────────────────────
+
+interface HostStatus {
+  hostName: string;
+  avgResponseMinutes: number | null;
+  online: boolean;
+}
 
 interface ChatState {
   messages: ChatMessage[];
   isTyping: boolean;
   hostOnline: boolean;
+  hostStatus: HostStatus | null;
   isLoadingChat: boolean;
   wsConnected: boolean;
 }
@@ -140,6 +158,22 @@ interface UIActions {
   updateAccessibility: (settings: Partial<UIState['accessibilitySettings']>) => void;
 }
 
+// ─── SUBSCRIPTION SLICE ──────────────────────────────────────
+
+interface SubscriptionState {
+  plans: Plan[];
+  subscription: SubscriptionData | null;
+  isLoadingSubscription: boolean;
+}
+
+interface SubscriptionActions {
+  fetchPlans: () => Promise<void>;
+  fetchSubscription: () => Promise<void>;
+  startCheckout: (plan: string, interval: string) => Promise<string | null>;
+  openPortal: () => Promise<string | null>;
+  startTrial: (plan?: string) => Promise<void>;
+}
+
 // ─── COMBINED STORE ──────────────────────────────────────────
 
 type VectrysStore = AuthState &
@@ -151,7 +185,9 @@ type VectrysStore = AuthState &
   ChatState &
   ChatActions &
   UIState &
-  UIActions;
+  UIActions &
+  SubscriptionState &
+  SubscriptionActions;
 
 export const useStore = create<VectrysStore>()(
   devtools(
@@ -240,9 +276,9 @@ export const useStore = create<VectrysStore>()(
           }
         },
 
-        acceptTerms: async (cgu, cgv, rgpd) => {
+        acceptTerms: async (cgu, _cgv, rgpd) => {
           try {
-            await authApi.acceptTerms({ cgu, cgv, rgpd });
+            await authApi.acceptTerms({ cguAccepted: cgu, rgpdAccepted: rgpd });
             set({ termsAccepted: true });
           } catch (err: any) {
             set({ error: err.message });
@@ -349,18 +385,24 @@ export const useStore = create<VectrysStore>()(
           await guestApi.updateChecklist(reservation.id, checkoutChecklist);
         },
 
+        setCheckoutChecklist: (items) => set({ checkoutChecklist: items }),
+
         // ═══ SERVICES STATE ═══
         catalog: [],
         cart: [],
         orders: [],
         isLoadingServices: false,
+        paymentClientSecret: null,
+        pendingOrderId: null,
+        unreadMessageCount: 0,
+        pendingOrderCount: 0,
 
         fetchCatalog: async () => {
           const { reservation } = get();
           if (!reservation) return;
           set({ isLoadingServices: true });
           try {
-            const res = await servicesApi.getCatalog(reservation.property_id);
+            const res = await servicesApi.getCatalog(reservation.property?.id || reservation.property_id);
             set({ catalog: res.data.data, isLoadingServices: false });
           } catch {
             set({ isLoadingServices: false });
@@ -399,6 +441,8 @@ export const useStore = create<VectrysStore>()(
 
         clearCart: () => set({ cart: [] }),
 
+        clearPayment: () => set({ paymentClientSecret: null, pendingOrderId: null }),
+
         placeOrder: async () => {
           const { cart } = get();
           if (cart.length === 0) return null;
@@ -406,18 +450,72 @@ export const useStore = create<VectrysStore>()(
             const res = await servicesApi.placeOrder(
               cart.map((c) => ({ service_id: c.service.id, quantity: c.quantity }))
             );
-            const order = res.data.data;
-            set({ cart: [], orders: [order, ...get().orders] });
-            return order;
+            const data = res.data.data as any;
+            const order = data;
+            const clientSecret = data.clientSecret || null;
+            set({
+              cart: [],
+              orders: [order, ...get().orders],
+              paymentClientSecret: clientSecret,
+              pendingOrderId: order.id,
+            });
+            return { order, clientSecret };
           } catch (err) {
             throw err;
           }
         },
 
+        confirmPayment: async (orderId, paymentIntentId) => {
+          try {
+            await servicesApi.confirmPayment(orderId, paymentIntentId);
+            set({
+              paymentClientSecret: null,
+              pendingOrderId: null,
+              orders: get().orders.map((o) =>
+                o.id === orderId ? { ...o, status: 'confirmed' as any } : o
+              ),
+            });
+          } catch (err) {
+            throw err;
+          }
+        },
+
+        cancelOrder: async (orderId) => {
+          try {
+            await servicesApi.cancelOrder(orderId);
+            set({
+              orders: get().orders.map((o) =>
+                o.id === orderId ? { ...o, status: 'cancelled' as any } : o
+              ),
+            });
+          } catch (err) {
+            throw err;
+          }
+        },
+
+        fetchUnreadCounts: () => {
+          const { orders, messages } = get();
+          const pendingOrderCount = orders.filter((o) =>
+            ['pending', 'confirmed', 'preparing'].includes(o.status)
+          ).length;
+          const unreadMessageCount = messages.filter((m) => m.from === 'host' && !m.read).length;
+          set({ pendingOrderCount, unreadMessageCount });
+        },
+
         fetchOrders: async () => {
           try {
             const res = await servicesApi.getMyOrders();
-            set({ orders: res.data.data });
+            const mapped = (res.data.data || []).map((o: any) => ({
+              ...o,
+              total_amount: o.total_amount ?? o.total ?? 0,
+              items: (o.items || []).map((i: any) => ({
+                ...i,
+                id: i.id || i.name,
+                service: i.service || { name: i.name },
+                total_price: i.total_price ?? ((i.unit_price * i.quantity) || 0),
+              })),
+            }));
+            set({ orders: mapped });
           } catch {
             // Silently fail
           }
@@ -427,14 +525,39 @@ export const useStore = create<VectrysStore>()(
         messages: [],
         isTyping: false,
         hostOnline: false,
+        hostStatus: null,
         isLoadingChat: false,
         wsConnected: false,
 
         fetchMessages: async () => {
           set({ isLoadingChat: true });
           try {
-            const res = await chatApi.getMessages();
-            set({ messages: res.data.data, isLoadingChat: false });
+            const { reservation } = get();
+            const res = await chatApi.getMessages(reservation?.id);
+            const mapped = (res.data.data || []).map((m: any) => ({
+              id: m.id,
+              text: m.content || m.text,
+              from: m.sender_type || m.from,
+              timestamp: m.created_at || m.timestamp,
+              read: !!m.read_at || !!m.read,
+            }));
+            set({ messages: mapped, isLoadingChat: false });
+
+            // Also fetch host status (name + avg response time)
+            try {
+              const { reservation } = get();
+              const statusRes = await chatApi.getHostStatus(reservation?.id);
+              const hs = (statusRes.data as any).data;
+              if (hs) {
+                set({
+                  hostStatus: {
+                    hostName: hs.hostName,
+                    avgResponseMinutes: hs.avgResponseMinutes,
+                    online: hs.online,
+                  },
+                });
+              }
+            } catch {}
           } catch {
             set({ isLoadingChat: false });
           }
@@ -455,9 +578,12 @@ export const useStore = create<VectrysStore>()(
           const sent = wsClient.sendMessage(text);
           if (!sent) {
             try {
-              const res = await chatApi.sendMessage(text);
+              const { reservation } = get();
+              const res = await chatApi.sendMessage(text, reservation?.id);
+              const d: any = res.data.data;
+              const mapped: ChatMessage = { id: d.id, text: d.content || d.text, from: d.sender_type || d.from, timestamp: d.created_at || d.timestamp, read: false };
               set({
-                messages: get().messages.map((m) => (m.id === tempMsg.id ? res.data.data : m)),
+                messages: get().messages.map((m) => (m.id === tempMsg.id ? mapped : m)),
               });
             } catch {
               // Remove optimistic message on failure
@@ -474,13 +600,35 @@ export const useStore = create<VectrysStore>()(
 
           wsClient
             .on('onMessage', (msg) => {
+              // Messages from others (host, system) — add to list
               set({ messages: [...get().messages, msg] });
+            })
+            .on('onMessageConfirmed', (msg) => {
+              // Our own message confirmed by server — replace temp with real DB entry
+              const msgs = get().messages;
+              // Find the latest temp message and replace it
+              const tempIdx = msgs.findIndex((m) => m.id.startsWith('temp_') && m.from === 'guest');
+              if (tempIdx >= 0) {
+                const updated = [...msgs];
+                updated[tempIdx] = msg;
+                set({ messages: updated });
+              }
             })
             .on('onTyping', ({ isTyping }) => {
               set({ isTyping });
             })
             .on('onPresence', ({ online }) => {
               set({ hostOnline: online });
+            })
+            .on('onHostStatus', (data) => {
+              set({
+                hostStatus: {
+                  hostName: data.hostName,
+                  avgResponseMinutes: data.avgResponseMinutes,
+                  online: data.online,
+                },
+                hostOnline: data.online,
+              });
             })
             .on('onError', (error) => {
               console.warn('[Chat WS]', error);
@@ -536,11 +684,64 @@ export const useStore = create<VectrysStore>()(
             accessibilitySettings: { ...get().accessibilitySettings, ...settings },
           });
         },
+
+        // ═══ SUBSCRIPTION STATE ═══
+        plans: [],
+        subscription: null,
+        isLoadingSubscription: false,
+
+        fetchPlans: async () => {
+          try {
+            const res = await subscriptionApi.getPlans();
+            set({ plans: res.data.data });
+          } catch {}
+        },
+
+        fetchSubscription: async () => {
+          set({ isLoadingSubscription: true });
+          try {
+            const res = await subscriptionApi.getStatus();
+            set({ subscription: res.data.data, isLoadingSubscription: false });
+          } catch {
+            set({ isLoadingSubscription: false });
+          }
+        },
+
+        startCheckout: async (plan, interval) => {
+          try {
+            const res = await subscriptionApi.createCheckout(plan, interval);
+            const url = res.data.data.url;
+            if (url) window.location.href = url;
+            return url;
+          } catch {
+            return null;
+          }
+        },
+
+        openPortal: async () => {
+          try {
+            const res = await subscriptionApi.createPortal();
+            const url = res.data.data.url;
+            if (url) window.location.href = url;
+            return url;
+          } catch {
+            return null;
+          }
+        },
+
+        startTrial: async (plan) => {
+          try {
+            await subscriptionApi.startTrial(plan);
+            await get().fetchSubscription();
+          } catch {}
+        },
       }),
       {
         name: 'vectrys-store',
         // Ne persister que certains champs
         partialize: (state) => ({
+          user: state.user,
+          isAuthenticated: state.isAuthenticated,
           lang: state.lang,
           accessibilitySettings: state.accessibilitySettings,
           termsAccepted: state.termsAccepted,
@@ -597,6 +798,7 @@ export const useBooking = () =>
     checkout: s.checkout,
     toggleChecklistTask: s.toggleChecklistTask,
     updateChecklist: s.updateChecklist,
+    setCheckoutChecklist: s.setCheckoutChecklist,
   }));
 
 export const useServices = () =>
@@ -607,13 +809,21 @@ export const useServices = () =>
     isLoading: s.isLoadingServices,
     cartTotal: s.cart.reduce((sum, c) => sum + c.service.price * c.quantity, 0),
     cartCount: s.cart.reduce((sum, c) => sum + c.quantity, 0),
+    paymentClientSecret: s.paymentClientSecret,
+    pendingOrderId: s.pendingOrderId,
+    unreadMessageCount: s.unreadMessageCount,
+    pendingOrderCount: s.pendingOrderCount,
     fetchCatalog: s.fetchCatalog,
     addToCart: s.addToCart,
     removeFromCart: s.removeFromCart,
     updateCartQuantity: s.updateCartQuantity,
     clearCart: s.clearCart,
     placeOrder: s.placeOrder,
+    confirmPayment: s.confirmPayment,
+    clearPayment: s.clearPayment,
     fetchOrders: s.fetchOrders,
+    cancelOrder: s.cancelOrder,
+    fetchUnreadCounts: s.fetchUnreadCounts,
   }));
 
 export const useChat = () =>
@@ -621,6 +831,7 @@ export const useChat = () =>
     messages: s.messages,
     isTyping: s.isTyping,
     hostOnline: s.hostOnline,
+    hostStatus: s.hostStatus,
     isLoading: s.isLoadingChat,
     wsConnected: s.wsConnected,
     fetchMessages: s.fetchMessages,
@@ -640,6 +851,18 @@ export const useUI = () =>
     setLang: s.setLang,
     setOffline: s.setOffline,
     updateAccessibility: s.updateAccessibility,
+  }));
+
+export const useSubscription = () =>
+  useStore((s) => ({
+    plans: s.plans,
+    subscription: s.subscription,
+    isLoadingSubscription: s.isLoadingSubscription,
+    fetchPlans: s.fetchPlans,
+    fetchSubscription: s.fetchSubscription,
+    startCheckout: s.startCheckout,
+    openPortal: s.openPortal,
+    startTrial: s.startTrial,
   }));
 
 // ═══════════════════════════════════════════════════════════════
@@ -857,10 +1080,8 @@ export const useEmployeeStore = create<EmployeeStoreState & EmployeeStoreActions
         },
 
         employeeLogout: () => {
-          // Best-effort logout session tracking (only if we have a token)
-          if (employeeTokenManager.getAccessToken()) {
-            employeeApi.logoutSession().catch(() => {});
-          }
+          // Best-effort logout session tracking
+          employeeApi.logoutSession().catch(() => {});
           employeeTokenManager.clearTokens();
           set({
             employee: null,

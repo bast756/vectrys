@@ -7,7 +7,7 @@ import type { AuthTokens, ApiError } from '@/types';
 
 // ─── CONFIGURATION ───────────────────────────────────────────
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 const TOKEN_REFRESH_ENDPOINT = '/auth/refresh';
 
 // ─── TOKEN MANAGER ───────────────────────────────────────────

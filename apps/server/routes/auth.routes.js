@@ -149,6 +149,57 @@ router.post('/reservation-code', validate(reservationCodeSchema), async (req, re
   }
 });
 
+// Alias for frontend compatibility (returns format expected by Zustand store)
+router.post('/booking-code', async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Code requis' });
+
+    // Find reservation by code
+    const reservation = await import('../config/prisma.js').then(m => m.default).then(prisma =>
+      prisma.reservation.findUnique({
+        where: { code: code.toUpperCase().trim() },
+        include: { guest: true, property: { select: { id: true, name: true } } },
+      })
+    );
+
+    if (!reservation) return res.status(404).json({ error: 'Code reservation introuvable' });
+    if (reservation.status === 'CANCELLED') return res.status(403).json({ error: 'Reservation annulee' });
+
+    const guest = reservation.guest;
+    const { generateTokenPair } = await import('../src/utils/jwt.js');
+    const tokens = generateTokenPair(guest);
+
+    const prisma = (await import('../config/prisma.js')).default;
+    await prisma.guest.update({
+      where: { id: guest.id },
+      data: { refreshToken: tokens.refreshToken },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        user: {
+          id: guest.id,
+          email: guest.email,
+          first_name: guest.firstName,
+          last_name: guest.lastName,
+          lang: guest.language || 'fr',
+          role: 'guest',
+          terms_accepted: !!guest.legalAcceptedAt,
+        },
+        tokens: {
+          access_token: tokens.accessToken,
+          refresh_token: tokens.refreshToken,
+          expires_in: 900,
+        },
+      },
+    });
+  } catch (err) {
+    return handleAuthError(res, err);
+  }
+});
+
 // ─── REFRESH TOKEN ──────────────────────────
 
 /**

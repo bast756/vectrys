@@ -6,7 +6,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useEmployeeStore } from '@/store';
-import { employeeTokenManager } from '@/api/employeeApi';
 
 const DL = {
   void: '#05080d', obsidian: '#0d1220', surface: '#121828', elevated: '#171e34',
@@ -28,7 +27,6 @@ export default function EmployeeLoginPage() {
   const { employeeLogin, verifyOtp, cancelOtp, isEmployeeLoading, employeeError, clearEmployeeError, otpPending } = useEmployeeStore();
   const [matricule, setMatricule] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -42,7 +40,6 @@ export default function EmployeeLoginPage() {
   const handleStep1 = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      employeeTokenManager.setRememberMe(rememberMe);
       await employeeLogin(matricule, password);
     } catch { /* error in store */ }
   };
@@ -145,22 +142,6 @@ export default function EmployeeLoginPage() {
               placeholder="Mot de passe"
               style={inputStyle(!!employeeError)}
             />
-
-            <label style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              fontSize: 13, color: DL.text.secondary, cursor: 'pointer',
-              marginBottom: 16, userSelect: 'none',
-            }}>
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                style={{
-                  width: 16, height: 16, accentColor: DL.gold400, cursor: 'pointer',
-                }}
-              />
-              Rester connecte
-            </label>
 
             {employeeError && (
               <p style={{ fontSize: 12, color: '#ef4444', margin: '0 0 12px' }}>{employeeError}</p>

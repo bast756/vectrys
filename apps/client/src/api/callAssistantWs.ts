@@ -8,7 +8,7 @@ import { io, Socket } from 'socket.io-client';
 import { tokenManager } from './client';
 import { employeeTokenManager } from './employeeApi';
 
-const WS_URL = import.meta.env.VITE_WS_URL || '';
+const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3000';
 
 // ─── TYPES ──────────────────────────────────────────────────
 

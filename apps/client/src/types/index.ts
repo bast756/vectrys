@@ -72,6 +72,7 @@ export interface Property {
   address: string;
   city: string;
   postal_code: string;
+  zip_code?: string;
   country: string;
   lat: number;
   lng: number;
@@ -88,6 +89,7 @@ export interface Property {
 
   // Media
   photos: string[];
+  image_urls?: string[];
   welcome_video_url?: string;
 
   // Metadata
@@ -143,6 +145,8 @@ export interface Order {
   delivery_time?: string;
   created_at: string;
   updated_at: string;
+  client_secret?: string;
+  stripe_payment_id?: string;
 
   // Relations
   items: OrderItem[];
@@ -158,6 +162,7 @@ export interface ChatMessage {
   timestamp: string;
   read: boolean;
   attachment_url?: string;
+  translatedContent?: string | null;
 }
 
 export interface Conversation {
@@ -311,9 +316,8 @@ export interface BookingCodeForm {
 }
 
 export interface TermsAcceptance {
-  cgu: boolean;
-  cgv: boolean;
-  rgpd: boolean;
+  cguAccepted: boolean;
+  rgpdAccepted: boolean;
 }
 
 export interface ProfileUpdate {
@@ -349,4 +353,55 @@ export interface WsPresenceEvent {
   reservation_id: string;
   user: 'host' | 'guest';
   online: boolean;
+}
+
+// ─── SUBSCRIPTION & BILLING ──────────────────────────────────
+
+export type PlanId = 'free' | 'starter' | 'pro' | 'enterprise';
+export type SubscriptionStatusType = 'trialing' | 'active' | 'past_due' | 'cancelled' | 'expired';
+export type BillingInterval = 'monthly' | 'yearly';
+
+export interface PlanFeatures {
+  max_properties: number;
+  cleancheck_verifications: number;
+  ai_responses: number;
+  channel_sync: boolean;
+  dynamic_pricing: boolean;
+  white_label: boolean;
+}
+
+export interface Plan {
+  id: PlanId;
+  name: string;
+  monthly_price: number;
+  yearly_price: number;
+  monthly_price_cents: number;
+  yearly_price_cents: number;
+  features: PlanFeatures;
+}
+
+export interface SubscriptionInvoice {
+  id: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  invoice_url?: string;
+  invoice_pdf?: string;
+  paid_at?: string;
+  period_start?: string;
+  period_end?: string;
+}
+
+export interface SubscriptionData {
+  id?: string;
+  plan: PlanId;
+  status: SubscriptionStatusType;
+  billing_interval: BillingInterval;
+  trial_end?: string;
+  trial_days_left?: number;
+  current_period_start?: string;
+  current_period_end?: string;
+  cancelled_at?: string;
+  features: PlanFeatures;
+  invoices: SubscriptionInvoice[];
 }

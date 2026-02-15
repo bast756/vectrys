@@ -30,6 +30,7 @@ model Organization {
   users                User[]
   bookings             Booking[]
   conversations        Conversation[]
+  subscriptions        Subscription[]
 
   // Metadata
   created_at           DateTime @default(now())
@@ -86,10 +87,11 @@ model Guest {
   updatedAt       DateTime     @updatedAt
 
   // Guest Portal relations
-  reservations    Reservation[]
-  guestMessages   GuestMessage[]
-  ratings         Rating[]
-  orders          Order[]
+  reservations        Reservation[]
+  guestMessages       GuestMessage[]
+  ratings             Rating[]
+  orders              Order[]
+  travelJournalEntries TravelJournalEntry[]
 
   // Legacy relations (Booking, Conversation — unused but kept for schema integrity)
   bookings        Booking[]
@@ -609,11 +611,28 @@ model KnowledgeBaseEntry {
   id                   String   @id @default(uuid())
   organization_id      String?
 
-  // Content
+  // Property relation (for guest portal AI chat)
+  propertyId           String?
+  property             Property? @relation(fields: [propertyId], references: [id])
+
+  // Content (legacy Q&A format)
   type                 String   // global, property_specific
-  category             String   // faq, policy, amenity, local_info
+  category             String   // faq, policy, amenity, local_info, general
   question             String   @db.Text
   answer               String   @db.Text
+
+  // Guest AI Chat fields (title/content format)
+  title                String?
+  emoji                String   @default("📖")
+  description          String?
+  content              String?  @db.Text
+  keywords             String[]
+  photos               String[]
+  steps                String[]
+  status               String   @default("published") // published, draft, archived
+  views                Int      @default(0)
+  autoResolved         Int      @default(0)
+  pinned               Boolean  @default(false)
 
   // Multilingual
   language             String   @default("fr")
@@ -633,6 +652,8 @@ model KnowledgeBaseEntry {
   updated_at           DateTime @updatedAt
 
   @@index([organization_id])
+  @@index([propertyId, status])
+  @@index([propertyId, category])
   @@index([category])
   @@index([language])
   @@map("knowledge_base_entries")
@@ -1738,10 +1759,12 @@ model Property {
   ownerId String
   owner   Owner  @relation(fields: [ownerId], references: [id])
 
-  reservations    Reservation[]
-  services        Service[]
-  transportPoints TransportPoint[]
-  checklistItems  ChecklistItem[]
+  reservations         Reservation[]
+  services             Service[]
+  transportPoints      TransportPoint[]
+  checklistItems       ChecklistItem[]
+  recommendations      HostRecommendation[]
+  knowledgeBaseEntries KnowledgeBaseEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1770,6 +1793,7 @@ model Reservation {
   ratings               Rating[]
   orders                Order[]
   checklistCompletions  ChecklistCompletion[]
+  travelJournalEntries  TravelJournalEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1820,10 +1844,11 @@ model ChecklistCompletion {
 
 model GuestMessage {
   id                String     @id @default(cuid())
-  reservationId     String
-  reservation       Reservation @relation(fields: [reservationId], references: [id])
-  senderId          String
-  guest             Guest      @relation(fields: [senderId], references: [id])
+  reservationId     String?
+  reservation       Reservation? @relation(fields: [reservationId], references: [id])
+  senderId          String?
+  guest             Guest?     @relation(fields: [senderId], references: [id])
+  conversationId    String?
   senderType        SenderType
   content           String
   translatedContent String?
@@ -1831,12 +1856,15 @@ model GuestMessage {
   createdAt         DateTime   @default(now())
 
   @@index([reservationId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([senderId])
 }
 
 enum SenderType {
   GUEST
   HOST
   SYSTEM
+  AI
 }
 
 // ─── SERVICES & ORDERS ──────────────────────
@@ -1960,6 +1988,72 @@ enum TransportType {
   PARKING
 }
 
+// ─── HOST RECOMMENDATIONS ──────────────────────
+
+model HostRecommendation {
+  id          String                    @id @default(cuid())
+  propertyId  String
+  property    Property                  @relation(fields: [propertyId], references: [id])
+  category    RecommendationCategory
+  name        String
+  address     String?
+  description String?                   // Host personal comment
+  rating      Float?                    // Host rating (1-5)
+  latitude    Float?
+  longitude   Float?
+  mapsUrl     String?                   // Google Maps link
+  imageUrl    String?
+  phone       String?
+  website     String?
+  sortOrder   Int                       @default(0)
+  active      Boolean                   @default(true)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  @@index([propertyId, category])
+  @@index([propertyId, active])
+}
+
+enum RecommendationCategory {
+  RESTAURANT
+  CAFE
+  BAR
+  BAKERY
+  SHOP
+  SUPERMARKET
+  PHARMACY
+  ATTRACTION
+  MUSEUM
+  PARK
+  SPORT
+  NIGHTLIFE
+  OTHER
+}
+
+// ─── TRAVEL JOURNAL ────────────────────────────
+
+model TravelJournalEntry {
+  id            String       @id @default(cuid())
+  guestId       String
+  guest         Guest        @relation(fields: [guestId], references: [id])
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  type          String       @default("note") // note, memory, tip, checklist, highlight
+  title         String       @default("")
+  content       String
+  emoji         String       @default("📝")
+  mood          String?      // happy, excited, relaxed, adventurous, neutral, sad
+  photos        String[]
+  location      Json?        // { lat, lng, label? }
+  tags          String[]
+  pinned        Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([guestId, createdAt])
+  @@index([guestId, reservationId])
+}
+
 // ============================================================================
 // EMPLOYEE DASHBOARD & CRM
 // ============================================================================
@@ -1979,8 +2073,6 @@ model Employee {
   work_schedule_end   String    @default("19:00") // Authorized connection end
   nda_accepted_at     DateTime?           // Non-disclosure agreement acceptance date
   last_login          DateTime?
-  last_activity       DateTime?           // Updated on each authenticated request
-  locked_at           DateTime?           // Set when account locked for 30-day inactivity
   created_at          DateTime  @default(now())
   updated_at          DateTime  @updatedAt
 
@@ -1991,6 +2083,7 @@ model Employee {
   screenshot_alerts   EmployeeScreenshotAlert[]
   sessions            EmployeeSession[]
   otps                EmployeeOtp[]
+  pointages           EmployeePointage[]
 
   @@map("employees")
 }
@@ -2147,6 +2240,31 @@ model EmployeeScreenshotAlert {
 }
 
 // ============================================================================
+// EMPLOYEE POINTAGE (Geolocation Clock-in/Clock-out)
+// ============================================================================
+
+model EmployeePointage {
+  id              String    @id @default(uuid())
+  employee_id     String
+  employee        Employee  @relation(fields: [employee_id], references: [id])
+
+  type            String                // "clock_in" or "clock_out"
+  lat             Float?
+  lng             Float?
+  accuracy        Float?                // GPS accuracy in meters
+  address         String?               // Reverse-geocoded address (optional)
+  method          String    @default("gps") // gps, manual, qr
+  verified        Boolean   @default(false)
+  notes           String?
+
+  created_at      DateTime  @default(now())
+
+  @@index([employee_id])
+  @@index([created_at])
+  @@map("employee_pointages")
+}
+
+// ============================================================================
 // AI CALL ASSISTANT ("Souffleur Intelligent")
 // ============================================================================
 
@@ -2200,4 +2318,83 @@ model CallSuggestion {
 
   @@index([session_id])
   @@map("call_suggestions")
+}
+
+// ============================================================================
+// SUBSCRIPTIONS & BILLING
+// ============================================================================
+
+enum SubscriptionPlan {
+  free
+  starter
+  pro
+  enterprise
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  cancelled
+  expired
+}
+
+enum BillingInterval {
+  monthly
+  yearly
+}
+
+model Subscription {
+  id                     String             @id @default(uuid())
+  organization_id        String
+  organization           Organization       @relation(fields: [organization_id], references: [id])
+
+  // Plan
+  plan                   SubscriptionPlan   @default(free)
+  status                 SubscriptionStatus @default(trialing)
+  billing_interval       BillingInterval    @default(monthly)
+
+  // Trial
+  trial_start            DateTime?
+  trial_end              DateTime?
+
+  // Stripe
+  stripe_customer_id     String?            @unique
+  stripe_subscription_id String?            @unique
+  stripe_price_id        String?
+
+  // Dates
+  current_period_start   DateTime?
+  current_period_end     DateTime?
+  cancelled_at           DateTime?
+
+  // Metadata
+  created_at             DateTime           @default(now())
+  updated_at             DateTime           @updatedAt
+
+  // Invoices
+  invoices               Invoice[]
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                     String       @id @default(uuid())
+  subscription_id        String
+  subscription           Subscription @relation(fields: [subscription_id], references: [id])
+
+  stripe_invoice_id      String?      @unique
+  amount_cents           Int
+  currency               String       @default("eur")
+  status                 String       @default("draft") // draft, open, paid, void, uncollectible
+  invoice_url            String?
+  invoice_pdf            String?
+
+  period_start           DateTime?
+  period_end             DateTime?
+  paid_at                DateTime?
+
+  created_at             DateTime     @default(now())
+
+  @@map("invoices")
 }

@@ -4,12 +4,10 @@
 // ============================================================================
 
 import employeeAuthService from '../services/employee-auth.service.js';
-import prisma from '../config/prisma.js';
 
 /**
  * Middleware: requires valid employee JWT.
  * Attaches employee to req.employee.
- * Updates last_activity for session persistence tracking.
  */
 export async function requireEmployee(req, res, next) {
   try {
@@ -24,23 +22,6 @@ export async function requireEmployee(req, res, next) {
     const employee = await employeeAuthService.getEmployeeById(payload.sub);
     if (!employee || !employee.active) {
       return res.status(401).json({ error: 'Employé non trouvé ou inactif' });
-    }
-
-    // Check if account is locked for inactivity
-    if (employee.locked_at) {
-      return res.status(403).json({
-        error: 'Compte verrouillé pour inactivité (30 jours). Contactez votre administrateur.',
-        code: 'ACCOUNT_LOCKED',
-      });
-    }
-
-    // Update last_activity (throttled: max once per 5 minutes to avoid DB spam)
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
-    if (!employee.last_activity || new Date(employee.last_activity) < fiveMinAgo) {
-      prisma.employee.update({
-        where: { id: employee.id },
-        data: { last_activity: new Date() },
-      }).catch(() => {}); // Fire-and-forget, don't block the request
     }
 
     req.employee = employee;

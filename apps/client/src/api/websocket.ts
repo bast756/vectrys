@@ -1,13 +1,13 @@
 // ============================================================
 // VECTRYS — WebSocket Client (Socket.io)
-// Chat temps réel avec reconnexion automatique
+// Chat temps réel avec namespace /guest-portal
 // ============================================================
 
 import { io, Socket } from 'socket.io-client';
 import { tokenManager } from './client';
 import type { ChatMessage, WsTypingEvent, WsPresenceEvent } from '@/types';
 
-const WS_URL = import.meta.env.VITE_WS_URL || '';
+const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:3001';
 
 // ─── WEBSOCKET CLIENT CLASS ──────────────────────────────────
 
@@ -17,7 +17,7 @@ class WebSocketClient {
   private eventHandlers: Map<string, Function> = new Map();
 
   /**
-   * Se connecter au WebSocket pour une réservation
+   * Se connecter au WebSocket namespace /guest-portal
    */
   connect(reservationId: string): void {
     if (this.socket?.connected && this.reservationId === reservationId) {
@@ -31,10 +31,10 @@ class WebSocketClient {
     this.reservationId = reservationId;
     const token = tokenManager.getAccessToken();
 
-    this.socket = io(WS_URL, {
+    // Connect to /guest-portal namespace
+    this.socket = io(`${WS_URL}/guest-portal`, {
       auth: { token },
-      query: { reservation_id: reservationId },
-      transports: ['websocket', 'polling'], // Fallback to polling if WS fails
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -44,7 +44,7 @@ class WebSocketClient {
 
     this.setupEventListeners();
 
-    console.log(`[WS] Connexion à ${WS_URL} pour réservation ${reservationId}`);
+    console.log(`[WS] Connexion à ${WS_URL}/guest-portal pour réservation ${reservationId}`);
   }
 
   /**
@@ -56,6 +56,10 @@ class WebSocketClient {
     // ─── Connexion réussie ───
     this.socket.on('connect', () => {
       console.log('[WS] Connecté', this.socket?.id);
+      // Join the reservation room after connection
+      if (this.reservationId) {
+        this.socket?.emit('join:reservation', this.reservationId);
+      }
     });
 
     // ─── Erreur de connexion ───
@@ -67,6 +71,10 @@ class WebSocketClient {
     // ─── Reconnexion ───
     this.socket.on('reconnect', (attemptNumber) => {
       console.log(`[WS] Reconnecté après ${attemptNumber} tentatives`);
+      // Re-join reservation room on reconnect
+      if (this.reservationId) {
+        this.socket?.emit('join:reservation', this.reservationId);
+      }
     });
 
     // ─── Déconnexion ───
@@ -74,10 +82,22 @@ class WebSocketClient {
       console.log('[WS] Déconnecté', reason);
     });
 
-    // ─── MESSAGE REÇU ───
+    // ─── MESSAGE REÇU (from other users in the room) ───
     this.socket.on('message', (message: ChatMessage) => {
       console.log('[WS] Message reçu', message);
       this.callHandler('onMessage', message);
+    });
+
+    // ─── MESSAGE CONFIRMÉ (our own message saved to DB — replaces optimistic temp) ───
+    this.socket.on('message:confirmed', (message: ChatMessage) => {
+      console.log('[WS] Message confirmé', message);
+      this.callHandler('onMessageConfirmed', message);
+    });
+
+    // ─── MESSAGE TRADUIT ───
+    this.socket.on('message:translated', (data: { messageId: string; translatedContent: string }) => {
+      console.log('[WS] Message traduit', data);
+      this.callHandler('onTranslated', data);
     });
 
     // ─── TYPING INDICATOR ───
@@ -90,6 +110,12 @@ class WebSocketClient {
     this.socket.on('presence', (data: WsPresenceEvent) => {
       console.log('[WS] Presence', data);
       this.callHandler('onPresence', data);
+    });
+
+    // ─── HOST STATUS (name + avg response time) ───
+    this.socket.on('host:status', (data: any) => {
+      console.log('[WS] Host status', data);
+      this.callHandler('onHostStatus', data);
     });
 
     // ─── ERREUR GÉNÉRIQUE ───
@@ -146,9 +172,9 @@ class WebSocketClient {
   /**
    * Enregistrer un handler d'événement
    */
-  on(event: 'onMessage' | 'onTyping' | 'onPresence' | 'onError', handler: Function): this {
+  on(event: 'onMessage' | 'onMessageConfirmed' | 'onTyping' | 'onPresence' | 'onError' | 'onTranslated' | 'onHostStatus', handler: Function): this {
     this.eventHandlers.set(event, handler);
-    return this; // Permet le chaînage : wsClient.on('onMessage', ...).on('onTyping', ...)
+    return this;
   }
 
   /**

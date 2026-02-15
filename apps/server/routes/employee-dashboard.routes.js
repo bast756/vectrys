@@ -456,4 +456,151 @@ router.patch('/team/:id/schedule', requireCEO, async (req, res) => {
   }
 });
 
+// ─── POINTAGE (GEOLOCATION CLOCK-IN/OUT) ─────────────────────
+
+// GET /api/employee/pointage/status — Current clock-in status
+router.get('/pointage/status', async (req, res) => {
+  try {
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const todayPointages = await prisma.employeePointage.findMany({
+      where: {
+        employee_id: req.employee.id,
+        created_at: { gte: startOfDay },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    const lastEntry = todayPointages[0] || null;
+    const isClockedIn = lastEntry?.type === 'clock_in';
+
+    // Calculate today's total hours
+    let totalMinutes = 0;
+    for (let i = 0; i < todayPointages.length; i++) {
+      const p = todayPointages[i];
+      if (p.type === 'clock_out' && i + 1 < todayPointages.length) {
+        const clockIn = todayPointages[i + 1];
+        if (clockIn.type === 'clock_in') {
+          totalMinutes += (new Date(p.created_at).getTime() - new Date(clockIn.created_at).getTime()) / 60000;
+          i++; // skip the clock_in
+        }
+      }
+    }
+
+    // If currently clocked in, add time since last clock in
+    if (isClockedIn && lastEntry) {
+      totalMinutes += (Date.now() - new Date(lastEntry.created_at).getTime()) / 60000;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        isClockedIn,
+        lastEntry,
+        todayPointages,
+        totalMinutesToday: Math.round(totalMinutes),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/employee/pointage/clock-in — Record clock-in
+router.post('/pointage/clock-in', async (req, res) => {
+  try {
+    const { lat, lng, accuracy, address, method, notes } = req.body;
+
+    const pointage = await prisma.employeePointage.create({
+      data: {
+        employee_id: req.employee.id,
+        type: 'clock_in',
+        lat: lat || null,
+        lng: lng || null,
+        accuracy: accuracy || null,
+        address: address || null,
+        method: method || 'gps',
+        verified: !!lat && !!lng && (accuracy || 999) <= 50,
+        notes: notes || null,
+      },
+    });
+
+    res.status(201).json({ success: true, data: pointage });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/employee/pointage/clock-out — Record clock-out
+router.post('/pointage/clock-out', async (req, res) => {
+  try {
+    const { lat, lng, accuracy, address, method, notes } = req.body;
+
+    const pointage = await prisma.employeePointage.create({
+      data: {
+        employee_id: req.employee.id,
+        type: 'clock_out',
+        lat: lat || null,
+        lng: lng || null,
+        accuracy: accuracy || null,
+        address: address || null,
+        method: method || 'gps',
+        verified: !!lat && !!lng && (accuracy || 999) <= 50,
+        notes: notes || null,
+      },
+    });
+
+    res.status(201).json({ success: true, data: pointage });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/employee/pointage/history — Pointage history
+router.get('/pointage/history', async (req, res) => {
+  try {
+    const { from, to, limit } = req.query;
+    const where = { employee_id: req.employee.id };
+
+    if (from || to) {
+      where.created_at = {};
+      if (from) where.created_at.gte = new Date(from);
+      if (to) where.created_at.lte = new Date(to);
+    }
+
+    const pointages = await prisma.employeePointage.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      take: parseInt(limit) || 100,
+    });
+
+    res.json({ success: true, data: pointages });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/employee/pointage/team — CEO: all team pointages today
+router.get('/pointage/team', requireCEO, async (req, res) => {
+  try {
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const pointages = await prisma.employeePointage.findMany({
+      where: { created_at: { gte: startOfDay } },
+      orderBy: { created_at: 'desc' },
+      include: {
+        employee: {
+          select: { id: true, matricule: true, first_name: true, last_name: true, avatar_url: true },
+        },
+      },
+    });
+
+    res.json({ success: true, data: pointages });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

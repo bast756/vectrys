@@ -17,7 +17,7 @@ const DL = {
   gradient: { gold: 'linear-gradient(135deg, #d4a853 0%, #fcd34d 50%, #b8860b 100%)' },
 };
 
-const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || '';
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3000';
 
 const ROLE_BADGES: Record<string, { label: string; color: string }> = {
   ceo: { label: 'CEO', color: '#d4a853' },
@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/employee/crm', label: 'CRM' },
   { to: '/employee/notes', label: 'Notes' },
   { to: '/employee/gantt', label: 'Gantt' },
+  { to: '/employee/pointage', label: 'Pointage' },
   { to: '/employee/planning', label: 'Planning', ceoOnly: true },
   { to: '/employee/profile', label: 'Mon Profil' },
   { to: '/employee/security-alerts', label: 'Alertes Securite', ceoOnly: true },
@@ -75,12 +76,8 @@ export default function EmployeeLayout() {
         display: 'flex', flexDirection: 'column', flexShrink: 0,
       }}>
         {/* Logo */}
-        <div style={{ padding: '24px 20px 20px', borderBottom: `1px solid ${DL.glassBorder}` }}>
-          <span style={{
-            fontFamily: "'DM Sans', sans-serif", fontSize: 18, fontWeight: 800,
-            letterSpacing: 4, background: DL.gradient.gold,
-            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-          }}>VECTRYS</span>
+        <div style={{ padding: '20px 16px 16px', borderBottom: `1px solid ${DL.glassBorder}` }}>
+          <img src="/brand/logo-horizontal-dark.png" alt="VECTRYS" style={{ height: 28, objectFit: 'contain' }} />
         </div>
 
         {/* Employee identity card */}

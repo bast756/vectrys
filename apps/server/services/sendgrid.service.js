@@ -204,6 +204,73 @@ export async function sendEmployeeOtp(to, { firstName, code, purpose }) {
   });
 }
 
+/**
+ * Notifie le guest par email quand le proprietaire envoie un message
+ */
+export async function sendNewMessageNotification(to, { guestName, hostName, messagePreview, propertyName, chatUrl }) {
+  return sendEmail({
+    to,
+    subject: `Nouveau message de votre hote — ${propertyName}`,
+    text: `Bonjour ${guestName}, ${hostName || 'votre hote'} vous a envoye un message : "${messagePreview}". Consultez le chat sur ${chatUrl}`,
+    html: `
+      <div style="font-family: 'DM Sans', system-ui, sans-serif; max-width: 500px; margin: 0 auto; background: #05080d; border-radius: 16px; overflow: hidden;">
+        <div style="padding: 32px 24px; background: linear-gradient(135deg, rgba(212,168,83,0.15), rgba(212,168,83,0.05)); border-bottom: 1px solid rgba(212,168,83,0.2);">
+          <div style="font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #d4a853, #fcd34d); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">VECTRYS</div>
+        </div>
+        <div style="padding: 32px 24px;">
+          <p style="color: #f1f5f9; font-size: 16px; margin: 0 0 8px;">Bonjour ${guestName},</p>
+          <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+            <strong style="color: #d4a853;">${hostName || 'Votre hote'}</strong> vous a envoye un message concernant votre sejour a <strong>${propertyName}</strong> :
+          </p>
+          <div style="background: #0d1220; border-radius: 12px; padding: 16px 20px; border-left: 3px solid #d4a853; margin-bottom: 24px;">
+            <p style="color: #f1f5f9; font-size: 14px; margin: 0; line-height: 1.5; font-style: italic;">"${messagePreview}"</p>
+          </div>
+          <a href="${chatUrl}" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #d4a853, #fcd34d); color: #05080d; border-radius: 8px; font-weight: 700; font-size: 14px; text-decoration: none;">
+            Repondre dans le chat
+          </a>
+        </div>
+        <div style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center;">
+          <p style="color: #64748b; font-size: 11px; margin: 0;">VECTRYS — Votre sejour, simplifie.</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
+/**
+ * Notifie le proprietaire par email quand un voyageur envoie un message
+ */
+export async function sendHostMessageNotification(to, { hostName, guestName, messagePreview, propertyName, dashboardUrl }) {
+  return sendEmail({
+    to,
+    subject: `Nouveau message de ${guestName} — ${propertyName}`,
+    text: `Bonjour ${hostName}, ${guestName} vous a envoye un message : "${messagePreview}". Consultez votre espace sur ${dashboardUrl}`,
+    html: `
+      <div style="font-family: 'DM Sans', system-ui, sans-serif; max-width: 500px; margin: 0 auto; background: #05080d; border-radius: 16px; overflow: hidden;">
+        <div style="padding: 32px 24px; background: linear-gradient(135deg, rgba(212,168,83,0.15), rgba(212,168,83,0.05)); border-bottom: 1px solid rgba(212,168,83,0.2);">
+          <div style="font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #d4a853, #fcd34d); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">VECTRYS</div>
+        </div>
+        <div style="padding: 32px 24px;">
+          <p style="color: #f1f5f9; font-size: 16px; margin: 0 0 8px;">Bonjour ${hostName},</p>
+          <p style="color: #94a3b8; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+            Votre voyageur <strong style="color: #d4a853;">${guestName}</strong> vous a envoye un message pour le logement <strong>${propertyName}</strong> :
+          </p>
+          <div style="background: #0d1220; border-radius: 12px; padding: 16px 20px; border-left: 3px solid #3b82f6; margin-bottom: 24px;">
+            <p style="color: #f1f5f9; font-size: 14px; margin: 0; line-height: 1.5; font-style: italic;">"${messagePreview}"</p>
+          </div>
+          <a href="${dashboardUrl}" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #d4a853, #fcd34d); color: #05080d; border-radius: 8px; font-weight: 700; font-size: 14px; text-decoration: none;">
+            Repondre au voyageur
+          </a>
+          <p style="color: #64748b; font-size: 12px; margin: 16px 0 0;">Repondez rapidement pour maintenir un bon taux de reponse.</p>
+        </div>
+        <div style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center;">
+          <p style="color: #64748b; font-size: 11px; margin: 0;">VECTRYS — Gestion locative intelligente.</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
 export default {
   sendBookingConfirmation,
   sendCheckinReminder,
@@ -212,4 +279,6 @@ export default {
   sendMagicLink,
   sendEmployeeInvitation,
   sendEmployeeOtp,
+  sendNewMessageNotification,
+  sendHostMessageNotification,
 };

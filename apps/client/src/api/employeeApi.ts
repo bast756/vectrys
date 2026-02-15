@@ -5,7 +5,7 @@
 
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 // ─── EMPLOYEE TOKEN MANAGER ──────────────────────────────────
 
@@ -13,43 +13,24 @@ class EmployeeTokenManager {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private refreshPromise: Promise<string> | null = null;
-  private rememberMe: boolean = false;
 
   constructor() {
     this.loadFromStorage();
   }
 
-  private get storage(): Storage {
-    return this.rememberMe ? localStorage : sessionStorage;
-  }
-
   private loadFromStorage(): void {
     if (typeof window !== 'undefined') {
-      // Check localStorage first (rememberMe), then sessionStorage
-      const lsAccess = localStorage.getItem('employee_access_token');
-      const ssAccess = sessionStorage.getItem('employee_access_token');
-      if (lsAccess) {
-        this.rememberMe = true;
-        this.accessToken = lsAccess;
-        this.refreshToken = localStorage.getItem('employee_refresh_token');
-      } else if (ssAccess) {
-        this.rememberMe = false;
-        this.accessToken = ssAccess;
-        this.refreshToken = sessionStorage.getItem('employee_refresh_token');
-      }
+      this.accessToken = localStorage.getItem('employee_access_token');
+      this.refreshToken = localStorage.getItem('employee_refresh_token');
     }
-  }
-
-  setRememberMe(value: boolean): void {
-    this.rememberMe = value;
   }
 
   setTokens(tokens: { accessToken: string; refreshToken: string }): void {
     this.accessToken = tokens.accessToken;
     this.refreshToken = tokens.refreshToken;
     if (typeof window !== 'undefined') {
-      this.storage.setItem('employee_access_token', tokens.accessToken);
-      this.storage.setItem('employee_refresh_token', tokens.refreshToken);
+      localStorage.setItem('employee_access_token', tokens.accessToken);
+      localStorage.setItem('employee_refresh_token', tokens.refreshToken);
     }
   }
 
@@ -67,8 +48,6 @@ class EmployeeTokenManager {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('employee_access_token');
       localStorage.removeItem('employee_refresh_token');
-      sessionStorage.removeItem('employee_access_token');
-      sessionStorage.removeItem('employee_refresh_token');
     }
   }
 
@@ -245,6 +224,18 @@ export const employeeApi = {
     employeeClient.get('/employee/screenshot-alerts/count'),
   acknowledgeScreenshotAlert: (id: string) =>
     employeeClient.patch(`/employee/screenshot-alerts/${id}/acknowledge`),
+
+  // Pointage (Geolocation Clock-in/Out)
+  getPointageStatus: () =>
+    employeeClient.get('/employee/pointage/status'),
+  clockIn: (data: { lat?: number; lng?: number; accuracy?: number; address?: string; method?: string; notes?: string }) =>
+    employeeClient.post('/employee/pointage/clock-in', data),
+  clockOut: (data: { lat?: number; lng?: number; accuracy?: number; address?: string; method?: string; notes?: string }) =>
+    employeeClient.post('/employee/pointage/clock-out', data),
+  getPointageHistory: (params?: { from?: string; to?: string; limit?: string }) =>
+    employeeClient.get('/employee/pointage/history', { params }),
+  getPointageTeam: () =>
+    employeeClient.get('/employee/pointage/team'),
 };
 
 export default employeeClient;

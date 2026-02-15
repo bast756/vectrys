@@ -81,11 +81,7 @@ export default function ForgotPasswordPage() {
         borderRadius: 20, padding: '48px 40px', width: 420, textAlign: 'center',
       }}>
         <div style={{ marginBottom: 8 }}>
-          <span style={{
-            fontSize: 28, fontWeight: 800, letterSpacing: 6,
-            background: DL.gradient.gold,
-            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-          }}>VECTRYS</span>
+          <img src="/brand/logo-stacked-white.png" alt="VECTRYS" style={{ height: 64, objectFit: 'contain' }} />
         </div>
         <p style={{ fontSize: 14, color: DL.text.secondary, margin: '0 0 32px' }}>
           Reinitialisation du mot de passe

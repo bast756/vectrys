@@ -77,11 +77,7 @@ export default function NdaAcceptancePage() {
       }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <span style={{
-            fontFamily: "'DM Sans', sans-serif", fontSize: 22, fontWeight: 800,
-            letterSpacing: 5, background: DL.gradient.gold,
-            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-          }}>VECTRYS</span>
+          <img src="/brand/logo-stacked-white.png" alt="VECTRYS" style={{ height: 64, objectFit: 'contain', margin: '0 auto 8px' }} />
           <p style={{ fontSize: 12, color: DL.text.muted, margin: '8px 0 0', letterSpacing: 1 }}>
             ACCORD DE CONFIDENTIALITE
           </p>
