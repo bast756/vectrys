@@ -900,6 +900,7 @@ interface EmployeeSession {
 interface OtpPending {
   employeeId: string;
   email: string; // masked email
+  devOtp?: string | null; // Dev mode only — auto-fill OTP
 }
 
 interface Prospect {
@@ -1041,7 +1042,7 @@ export const useEmployeeStore = create<EmployeeStoreState & EmployeeStoreActions
 
             if (data.requiresOtp) {
               set({
-                otpPending: { employeeId: data.employeeId, email: data.email },
+                otpPending: { employeeId: data.employeeId, email: data.email, devOtp: data._devOtp || null },
                 isEmployeeLoading: false,
               });
             } else {

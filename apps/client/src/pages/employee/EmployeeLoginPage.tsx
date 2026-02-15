@@ -31,9 +31,16 @@ export default function EmployeeLoginPage() {
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Focus first OTP input when switching to step 2
+  // In dev mode, auto-fill OTP code for instant access
   useEffect(() => {
     if (otpPending) {
-      setTimeout(() => otpRefs.current[0]?.focus(), 100);
+      if (otpPending.devOtp) {
+        const digits = otpPending.devOtp.split('');
+        setOtpDigits(digits);
+        setTimeout(() => submitOtp(otpPending.devOtp), 300);
+      } else {
+        setTimeout(() => otpRefs.current[0]?.focus(), 100);
+      }
     }
   }, [otpPending]);
 

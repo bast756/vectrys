@@ -24,28 +24,24 @@ router.post('/login', async (req, res) => {
 
     const result = await employeeAuthService.loginEmployee(matricule, password);
 
-    // Send OTP email
-    try {
-      await sendEmployeeOtp(result._employee.email, {
-        firstName: result._employee.first_name,
-        code: result.otpCode,
-        purpose: 'login_2fa',
-      });
-    } catch (emailErr) {
+    // Send OTP email (non-blocking — don't make the user wait)
+    sendEmployeeOtp(result._employee.email, {
+      firstName: result._employee.first_name,
+      code: result.otpCode,
+      purpose: 'login_2fa',
+    }).catch(emailErr => {
       console.error('[Employee Auth] Failed to send OTP email:', emailErr.message);
-      // Continue anyway — in dev mode, log the code
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[DEV] OTP code for ${matricule}: ${result.otpCode}`);
-      }
-    }
+    });
 
-    // Never send the OTP code or internal employee data to client
+    // In dev mode, return the OTP code directly for instant access
+    const isDev = process.env.NODE_ENV !== 'production';
     res.json({
       success: true,
       data: {
         requiresOtp: true,
         employeeId: result.employeeId,
         email: result.email,
+        ...(isDev && { _devOtp: result.otpCode }),
       },
     });
   } catch (err) {
@@ -166,24 +162,23 @@ router.post('/forgot-password', async (req, res) => {
 
     const result = await employeeAuthService.forgotPassword(email);
 
-    // Send OTP email if employee was found
+    // Send OTP email if employee was found (non-blocking)
     if (result._employee && result._otpCode) {
-      try {
-        await sendEmployeeOtp(result._employee.email, {
-          firstName: result._employee.first_name,
-          code: result._otpCode,
-          purpose: 'password_reset',
-        });
-      } catch (emailErr) {
+      sendEmployeeOtp(result._employee.email, {
+        firstName: result._employee.first_name,
+        code: result._otpCode,
+        purpose: 'password_reset',
+      }).catch(emailErr => {
         console.error('[Employee Auth] Failed to send reset OTP:', emailErr.message);
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[DEV] Reset OTP for ${email}: ${result._otpCode}`);
-        }
-      }
+      });
     }
 
-    // Always return success to prevent email enumeration
-    res.json({ success: true, message: 'Si un compte existe avec cet email, un code de verification a ete envoye.' });
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.json({
+      success: true,
+      message: 'Si un compte existe avec cet email, un code de verification a ete envoye.',
+      ...(isDev && result._otpCode && { _devOtp: result._otpCode }),
+    });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }
