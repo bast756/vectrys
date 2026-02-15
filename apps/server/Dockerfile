@@ -12,8 +12,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Installer les dépendances (y compris devDependencies pour le build)
-RUN npm ci
+# Installer les dépendances (npm install car pas de package-lock dans le workspace)
+RUN npm install
 
 # Générer le client Prisma
 RUN npx prisma generate
@@ -31,7 +31,7 @@ RUN apk add --no-cache curl
 
 # Copier les dépendances de production uniquement
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copier le client Prisma généré
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
@@ -70,4 +70,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:3001/health || exit 1
 
 # Script de démarrage : migrations Prisma + serveur
-CMD ["sh", "-c", "npx prisma migrate deploy && node server/index.js"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node server/index.js"]
