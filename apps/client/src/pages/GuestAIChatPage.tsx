@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBooking, useStore } from '@/store';
+import { tokenManager } from '@/api/client';
 import { aiChatApi } from '@/api/endpoints';
 import { ArrowLeft, Send, Bot, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -81,7 +82,7 @@ export default function GuestAIChatPage() {
 
     // Try streaming first
     const apiUrl = import.meta.env.VITE_API_URL || '/api';
-    const token = useStore.getState().tokens?.access_token;
+    const token = tokenManager.getAccessToken();
 
     try {
       setIsStreaming(true);
