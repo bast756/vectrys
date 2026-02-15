@@ -6,6 +6,8 @@
 # --- Stage 1: Build ---
 FROM node:20-alpine AS builder
 
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # Copier les fichiers de dépendances
@@ -26,8 +28,8 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Installer curl pour les health checks
-RUN apk add --no-cache curl
+# Installer curl pour health checks + openssl pour Prisma
+RUN apk add --no-cache curl openssl
 
 # Copier les dépendances de production uniquement
 COPY package*.json ./
